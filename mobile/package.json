@@ -1,0 +1,13 @@
+{
+  "name": "flix-audio-mobile",
+  "version": "1.0.0",
+  "description": "Flix Audio Mobile Client",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Add your development command here'",
+    "ios": "echo 'Add iOS build command here'",
+    "android": "echo 'Add Android build command here'"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

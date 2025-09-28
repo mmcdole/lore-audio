@@ -1,0 +1,7 @@
+./admin_handlers.go
+./auth_handlers.go
+./catalog_handlers.go
+./handlers.go
+./library_handlers.go
+./media_handlers.go
+./server.go
