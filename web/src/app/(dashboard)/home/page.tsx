@@ -112,7 +112,7 @@ export default function HomePage() {
                 />
               ) : (
                 <div className="-mx-4 lg:-mx-8">
-                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8 scrollbar-hide">
                     {continueListening.map((book) => (
                       <BookCard key={book.id} book={book} />
                     ))}
@@ -145,7 +145,7 @@ export default function HomePage() {
                 />
               ) : (
                 <div className="-mx-4 lg:-mx-8">
-                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8 scrollbar-hide">
                     {recentlyAdded.map((book) => (
                       <BookCard key={book.id} book={book} />
                     ))}
@@ -178,7 +178,7 @@ export default function HomePage() {
                 />
               ) : (
                 <div className="-mx-4 lg:-mx-8">
-                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8 scrollbar-hide">
                     {favorites.map((book) => (
                       <BookCard key={book.id} book={book} />
                     ))}

@@ -134,7 +134,7 @@ export default function FavoritesPage() {
       {/* Search and Filters */}
       {!isEmpty && (
         <div className="border-b border-border/40 bg-background/95 px-6 py-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-4">
             {/* Search */}
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

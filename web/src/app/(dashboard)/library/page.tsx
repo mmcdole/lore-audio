@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Headphones, Heart, Library as LibraryIcon, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,10 +28,19 @@ type FilterStatus = "all" | "not-started" | "in-progress" | "completed" | "favor
 type SortOption = "recently-added" | "title-az" | "author-az" | "recently-played";
 
 export default function LibraryPage() {
+  const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [sortBy, setSortBy] = useState<SortOption>("recently-added");
   const { selectedLibraryId } = useLibraryContext();
+
+  // Apply filter from URL on mount
+  useEffect(() => {
+    const filterParam = searchParams.get("filter");
+    if (filterParam && ["all", "not-started", "in-progress", "completed", "favorites"].includes(filterParam)) {
+      setFilterStatus(filterParam as FilterStatus);
+    }
+  }, [searchParams]);
   const { data, isPending } = useCatalogQuery({
     search: "", // Server-side search disabled for now
     libraryId: selectedLibraryId,

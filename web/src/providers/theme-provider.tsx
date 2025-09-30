@@ -5,7 +5,12 @@ import { ReactNode } from "react";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="dark"
+      storageKey="flix-audio-theme"
+      disableTransitionOnChange
+    >
       {children}
     </NextThemesProvider>
   );

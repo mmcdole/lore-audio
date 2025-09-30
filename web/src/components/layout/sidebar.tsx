@@ -69,9 +69,8 @@ export function Sidebar() {
           <Headset className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm text-muted-foreground">Flix Audio</p>
           <h2 className="text-lg font-semibold text-foreground">
-            Listening Hub
+            Flix Audio
           </h2>
         </div>
       </div>
