@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 
 	"github.com/flix-audio/backend/internal/auth"
 	"github.com/flix-audio/backend/internal/services/audiobooks"
@@ -29,6 +30,14 @@ func New(svc *audiobooks.Service, authSvc *auth.Service, librarySvc *library.Ser
 	// Add middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 	r.Use(ErrorMiddleware)
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -56,9 +65,9 @@ func New(svc *audiobooks.Service, authSvc *auth.Service, librarySvc *library.Ser
 			// Personal library endpoints (authenticated users)
 			r.Route("/library", func(r chi.Router) {
 				r.Get("/", s.handleLibraryList)
+				r.Get("/continue", s.handleLibraryContinue)
+				r.Get("/favorites", s.handleLibraryFavorites)
 				r.Get("/{audiobook_id}", s.handleLibraryGet)
-				r.Post("/add", s.handleLibraryAdd)
-				r.Delete("/{audiobook_id}", s.handleLibraryRemove)
 
 				r.Route("/{audiobook_id}", func(r chi.Router) {
 					r.Post("/progress", s.handleLibraryProgress)
@@ -192,10 +201,6 @@ type loginResponse struct {
 		Username string `json:"username"`
 		IsAdmin  bool   `json:"is_admin"`
 	} `json:"user"`
-}
-
-type addToLibraryRequest struct {
-	AudiobookID string `json:"audiobook_id"`
 }
 
 type createUserRequest struct {

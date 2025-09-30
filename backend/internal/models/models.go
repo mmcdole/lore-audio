@@ -14,7 +14,6 @@ type Audiobook struct {
 	MediaFiles       []MediaFile        `json:"media_files,omitempty"`
 	Metadata         *BookMetadata      `json:"metadata,omitempty"`
 	UserData         *UserAudiobookData `json:"user_data,omitempty"`
-	InLibrary        bool               `json:"in_library"`
 	FileCount        int                `json:"file_count,omitempty"`
 	TotalDurationSec float64            `json:"total_duration_sec,omitempty"`
 }
@@ -90,13 +89,6 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// UserLibrary represents the many-to-many relationship between users and audiobooks.
-type UserLibrary struct {
-	UserID      string    `json:"user_id"`
-	AudiobookID string    `json:"audiobook_id"`
-	AddedAt     time.Time `json:"added_at"`
-}
-
 // UserAudiobookData stores per-user listening information for books in their library.
 type UserAudiobookData struct {
 	UserID       string     `json:"user_id"`
@@ -104,7 +96,6 @@ type UserAudiobookData struct {
 	ProgressSec  float64    `json:"progress_sec"`
 	IsFavorite   bool       `json:"is_favorite"`
 	LastPlayedAt *time.Time `json:"last_played_at,omitempty"`
-	AddedAt      *time.Time `json:"added_at,omitempty"` // From user_library join
 }
 
 // LibraryPath represents a configured library directory.
@@ -134,4 +125,51 @@ type ImportSettings struct {
 	DestinationPath string    `json:"destination_path"`
 	Template        string    `json:"template"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// SeriesInfo represents aggregated information about a book series.
+type SeriesInfo struct {
+	Name             string          `json:"name"`
+	BookCount        int             `json:"book_count"`
+	TotalDurationSec float64         `json:"total_duration_sec"`
+	UserProgress     *SeriesProgress `json:"user_progress,omitempty"`
+}
+
+// SeriesProgress tracks user progress within a series.
+type SeriesProgress struct {
+	BooksStarted   int `json:"books_started"`
+	BooksCompleted int `json:"books_completed"`
+}
+
+// AuthorInfo represents aggregated information about an author.
+type AuthorInfo struct {
+	Name      string           `json:"name"`
+	BookCount int              `json:"book_count"`
+	UserStats *AuthorUserStats `json:"user_stats,omitempty"`
+}
+
+// AuthorUserStats tracks user statistics for an author's books.
+type AuthorUserStats struct {
+	BooksStarted   int `json:"books_started"`
+	BooksCompleted int `json:"books_completed"`
+}
+
+// UserStats represents aggregated statistics for a user's listening activity.
+type UserStats struct {
+	StreakDays             int     `json:"streak_days"`
+	TotalHours             float64 `json:"total_hours"`
+	BooksCompleted         int     `json:"books_completed"`
+	BooksInProgress        int     `json:"books_in_progress"`
+	FavoriteCount          int     `json:"favorite_count"`
+	ListeningTimeThisWeek  float64 `json:"listening_time_this_week"`
+	ListeningTimeThisMonth float64 `json:"listening_time_this_month"`
+}
+
+// FilterCounts represents counts for different audiobook filters.
+type FilterCounts struct {
+	All        int `json:"all"`
+	NotStarted int `json:"not_started"`
+	Listening  int `json:"listening"`
+	Completed  int `json:"completed"`
+	Favorites  int `json:"favorites"`
 }

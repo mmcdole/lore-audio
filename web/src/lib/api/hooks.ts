@@ -25,21 +25,13 @@ export const useCatalogQuery = ({
   useQuery({
     queryKey: queryKeys.catalog.list(search ?? null, libraryId ?? null),
     queryFn: async () => {
-      const trimmedId = libraryId?.trim();
-      if (!trimmedId) {
-        return { data: [], meta: { offset: 0, limit: 0, total: 0 } } as PaginatedResponse<Audiobook>;
-      }
-
-      const path = search
-        ? `/libraries/${trimmedId}/books/search`
-        : `/libraries/${trimmedId}/books`;
-
       const response = await apiFetch<{
         data: Audiobook[];
         pagination: { offset: number; limit: number; total: number };
-      }>(path, {
+      }>("/library", {
         method: "GET",
         searchParams: {
+          ...(libraryId ? { library_id: libraryId } : {}),
           ...(search ? { q: search } : {}),
         },
       });
@@ -53,7 +45,7 @@ export const useCatalogQuery = ({
         },
       } satisfies PaginatedResponse<Audiobook>;
     },
-    enabled: enabled && Boolean(libraryId?.trim()),
+    enabled: enabled,
     staleTime: 1000 * 60 * 10,
   });
 
@@ -75,11 +67,37 @@ export const useContinueListeningQuery = (libraryId?: string | null) =>
   useQuery({
     queryKey: queryKeys.library.continueListening(libraryId ?? null),
     queryFn: () =>
-      apiFetch<ContinueListeningEntry[]>("/library/continue", {
+      apiFetch<Audiobook[]>("/library/continue", {
         method: "GET",
         searchParams: libraryId ? { library_id: libraryId } : undefined,
       }),
     staleTime: 1000 * 60 * 2,
+  });
+
+export const useFavoritesQuery = (libraryId?: string | null) =>
+  useQuery({
+    queryKey: queryKeys.library.favorites(libraryId ?? null),
+    queryFn: async () => {
+      const trimmedId = libraryId?.trim();
+
+      const response = await apiFetch<{
+        data: Audiobook[];
+        pagination: { offset: number; limit: number; total: number };
+      }>("/library/favorites", {
+        method: "GET",
+        searchParams: trimmedId ? { library_id: trimmedId } : undefined,
+      });
+
+      return {
+        data: response.data,
+        meta: {
+          offset: response.pagination.offset,
+          limit: response.pagination.limit,
+          total: response.pagination.total,
+        },
+      } satisfies PaginatedResponse<Audiobook>;
+    },
+    staleTime: 1000 * 60 * 5,
   });
 
 export const useLibrariesQuery = () =>

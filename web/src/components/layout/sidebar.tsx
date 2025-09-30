@@ -3,15 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BookMarked,
-  FolderOpen,
+  Heart,
   Headset,
   Home,
   Library,
   ListMusic,
-  Search,
   Settings,
-  User,
   UserCog,
 } from "lucide-react";
 
@@ -26,16 +23,13 @@ interface SidebarLink {
 
 const PRIMARY_LINKS: SidebarLink[] = [
   { name: "Home", href: "/home", icon: Home },
+  { name: "Favorites", href: "/favorites", icon: Heart },
   { name: "Library", href: "/library", icon: Library },
-  { name: "Series", href: "/series", icon: BookMarked },
-  { name: "Authors", href: "/authors", icon: User },
-  { name: "Collections", href: "/collections", icon: FolderOpen },
 ];
 
 const SECONDARY_LINKS: SidebarLink[] = [
-  { name: "Profile", href: "/profile", icon: User },
-  { name: "Settings", href: "/settings", icon: Settings },
   { name: "Statistics", href: "/stats", icon: ListMusic },
+  { name: "Settings", href: "/settings", icon: Settings },
   { name: "Admin", href: "/admin", icon: UserCog },
 ];
 
@@ -82,18 +76,8 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="flex flex-col gap-6">
-        <div className="space-y-1">
-          <p className="px-1 text-xs uppercase tracking-wide text-muted-foreground">
-            Overview
-          </p>
-          {PRIMARY_LINKS.map(renderLink)}
-        </div>
-        <div className="space-y-1">
-          <p className="px-1 text-xs uppercase tracking-wide text-muted-foreground">
-            Account
-          </p>
-          {SECONDARY_LINKS.map(renderLink)}
-        </div>
+        <div className="space-y-1">{PRIMARY_LINKS.map(renderLink)}</div>
+        <div className="space-y-1">{SECONDARY_LINKS.map(renderLink)}</div>
       </nav>
     </aside>
   );

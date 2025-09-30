@@ -1,76 +1,93 @@
 # Flix Audio Backend
 
-Go-based audiobook server with SQLite database and RESTful API.
-
-## Tech Stack
-- Go 1.21+
-- SQLite database
-- Chi router
-- File-based library scanning
+Go-based audiobook management and streaming server with multi-library support, user authentication, and import workflows.
 
 ## Quick Start
 
-### Environment Setup
-The backend uses environment variables for configuration. Create a `.env` file in the backend directory:
-
-```env
-SERVER_ADDR=:8080
-DATABASE_PATH=./data/flix_audio.db
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin
-LIBRARY_ROOT=/Users/drake/Documents/audiobooks
-IMPORT_ROOT=/Users/drake/Documents/import
-```
-
-### Running the Server
-
-From the project root:
 ```bash
-./run.sh
-```
-
-Or manually:
-```bash
-cd backend
-export $(cat .env | grep -v '^#' | xargs)
-go run ./cmd/server
-```
-
-### Configuration Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_ADDR` | `:8080` | Server bind address and port |
-| `DATABASE_PATH` | `./data/flix_audio.db` | SQLite database file path |
-| `ADMIN_USERNAME` | `admin` | Default admin username |
-| `ADMIN_PASSWORD` | `admin` | Default admin password |
-| `LIBRARY_ROOT` | `.` | Root directory for library browsing |
-| `IMPORT_ROOT` | `.` | Root directory for import staging |
-
-## API Endpoints
-
-### Public
-- `POST /api/v1/auth/login` - Admin login
-
-### Authenticated (Admin)
-- `GET /api/v1/admin/library-paths` - List library directories
-- `GET /api/v1/admin/import-folders` - List import directories
-- `GET /api/v1/admin/import-settings` - Get import settings
-- `GET /api/v1/admin/filesystem/{root}/browse` - Browse filesystem
-
-## Development
-
-```bash
-# Install dependencies
-go mod download
+# Build and run
+go build -o server ./cmd/server
+./server
 
 # Run tests
 go test ./...
 
-# Build binary
-go build -o server ./cmd/server
+# Generate seed data (development)
+go build -o seed ./cmd/seed
+./seed
 ```
+
+Server runs on `:8080` by default. Configure via environment variables in `.env`.
+
+## Architecture
+
+**Clean architecture** with service layer orchestrating business logic and repository handling database access.
+
+```
+cmd/server/          # Application entry point
+internal/
+  app/               # Bootstrapping and DI
+  auth/              # API key authentication
+  config/            # Environment configuration
+  database/          # SQLite setup and schema
+  models/            # Domain models
+  repository/        # Data access layer (raw SQL)
+  services/          # Business logic
+    audiobooks/      # Core audiobook operations
+    library/         # Library and scanning
+    import/          # Import workflows
+  server/            # HTTP handlers and routing (Chi)
+  validation/        # Request validation
+```
+
+## Key Concepts
+
+- **Libraries**: Named collections (e.g., "Audiobooks", "Podcasts")
+- **Library Paths**: Physical directories that can be shared across libraries
+- **Library Directories**: Many-to-many join between libraries and paths
+- **Audiobooks**: Discovered from library paths, optionally linked to metadata
+- **Import System**: Copy/organize files from staging folders using templates
+
+## Configuration
+
+Environment variables (`.env`):
+
+```bash
+SERVER_ADDR=:8080                          # Listen address
+DATABASE_PATH=data/flix_audio.db           # SQLite database
+ADMIN_USERNAME=admin                       # Default admin
+ADMIN_PASSWORD=admin                       # Default password
+LIBRARY_ROOT=.                             # Browse root for library paths
+IMPORT_ROOT=.                              # Browse root for import folders
+```
+
+## API Overview
+
+All routes under `/api/v1`:
+
+- **Auth**: `POST /auth/login`, `POST /auth/logout`
+- **Libraries**: `GET /libraries` (public catalog)
+- **Personal Library**: `GET /library`, `POST /library/{id}/progress`
+- **Admin**: `/admin/*` (libraries, users, settings, import, scanning)
+- **Streaming**: `GET /media_files/{file_id}`
 
 ## Database
 
-The server uses SQLite with automatic migrations. The database file is created automatically at the configured path.
+SQLite with foreign key enforcement. Schema in `internal/database/schema.sql`.
+
+**Core tables**: `libraries`, `library_paths`, `library_directories`, `audiobooks`, `media_files`, `book_metadata`, `users`, `user_audiobook_data`, `import_folders`, `import_settings`
+
+## Development
+
+**Testing**: Use `go test ./...` or `go test -v ./internal/repository -run TestName` for specific tests.
+
+**Seeding**: Run `./seed` to populate test data (creates admin user, libraries, sample audiobooks).
+
+**Audio Duration**: Requires `ffprobe` for extracting media file durations during import.
+
+## Dependencies
+
+- `github.com/go-chi/chi/v5` - HTTP router
+- `github.com/mattn/go-sqlite3` - SQLite driver
+- `github.com/google/uuid` - UUID generation
+- `golang.org/x/crypto` - Password hashing

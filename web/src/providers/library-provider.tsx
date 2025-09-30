@@ -29,12 +29,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     null
   );
 
-  useEffect(() => {
-    if (!isPending && libraries.length > 0 && !selectedLibraryId) {
-      setSelectedLibraryId(libraries[0]?.id ?? null);
-    }
-  }, [libraries, isPending, selectedLibraryId]);
-
   const value = useMemo<LibraryContextValue>(
     () => ({
       libraries,

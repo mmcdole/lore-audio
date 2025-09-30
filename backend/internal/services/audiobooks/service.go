@@ -371,22 +371,6 @@ func (s *Service) GetLibraryItem(ctx context.Context, audiobookID, userID string
 	return s.repo.GetAudiobook(ctx, audiobookID, userID)
 }
 
-// AddToLibrary adds an audiobook to a user's personal library.
-func (s *Service) AddToLibrary(ctx context.Context, userID, audiobookID string) error {
-	// First verify the audiobook exists
-	_, err := s.repo.GetAudiobook(ctx, audiobookID, userID)
-	if err != nil {
-		return err
-	}
-
-	return s.repo.AddAudiobookToUserLibrary(ctx, userID, audiobookID)
-}
-
-// RemoveFromLibrary removes an audiobook from a user's personal library.
-func (s *Service) RemoveFromLibrary(ctx context.Context, userID, audiobookID string) error {
-	return s.repo.RemoveAudiobookFromUserLibrary(ctx, userID, audiobookID)
-}
-
 // UpdateProgress records listening progress for a user (requires book to be in their library).
 func (s *Service) UpdateProgress(ctx context.Context, userID, audiobookID string, progressSec float64) (*models.UserAudiobookData, error) {
 	// Check if user has this book in their library
@@ -522,3 +506,14 @@ func mimeTypeFor(path string) string {
 	}
 	return t
 }
+
+// GetUserFavorites returns audiobooks the user has marked as favorite.
+func (s *Service) GetUserFavorites(ctx context.Context, userID string, libraryID *string, offset, limit int) ([]models.Audiobook, int, error) {
+	return s.repo.GetUserFavorites(ctx, userID, libraryID, offset, limit)
+}
+
+// GetContinueListening returns audiobooks the user is currently listening to.
+func (s *Service) GetContinueListening(ctx context.Context, userID string, libraryID *string, limit int) ([]models.Audiobook, error) {
+	return s.repo.GetContinueListening(ctx, userID, libraryID, limit)
+}
+

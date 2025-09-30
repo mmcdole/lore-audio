@@ -98,17 +98,8 @@ CREATE TABLE IF NOT EXISTS user_audiobook_data (
     FOREIGN KEY (audiobook_id) REFERENCES audiobooks(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS user_library (
-    user_id TEXT NOT NULL,
-    audiobook_id TEXT NOT NULL,
-    added_at TEXT NOT NULL,
-    PRIMARY KEY (user_id, audiobook_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (audiobook_id) REFERENCES audiobooks(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_user_library_user ON user_library(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_library_audiobook ON user_library(audiobook_id);
+CREATE INDEX IF NOT EXISTS idx_user_audiobook_data_user ON user_audiobook_data(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_audiobook_data_audiobook ON user_audiobook_data(audiobook_id);
 
 CREATE TABLE IF NOT EXISTS user_library_access (
     user_id TEXT NOT NULL,

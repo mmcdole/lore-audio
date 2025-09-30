@@ -449,37 +449,17 @@ func parseTime(raw string) time.Time {
 	return time.Time{}
 }
 
-// UserHasAudiobookInLibrary checks if a user has added an audiobook to their personal library.
+// UserHasAudiobookInLibrary checks if a user has interacted with an audiobook (has data in user_audiobook_data).
 func (r *Repository) UserHasAudiobookInLibrary(ctx context.Context, userID, audiobookID string) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM user_library 
+		SELECT COUNT(*) FROM user_audiobook_data
 		WHERE user_id = ? AND audiobook_id = ?
 	`, userID, audiobookID).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
-}
-
-// AddAudiobookToUserLibrary adds an audiobook to a user's personal library.
-func (r *Repository) AddAudiobookToUserLibrary(ctx context.Context, userID, audiobookID string) error {
-	now := time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO user_library (user_id, audiobook_id, added_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT(user_id, audiobook_id) DO NOTHING
-	`, userID, audiobookID, now.Format(time.RFC3339))
-	return err
-}
-
-// RemoveAudiobookFromUserLibrary removes an audiobook from a user's personal library.
-func (r *Repository) RemoveAudiobookFromUserLibrary(ctx context.Context, userID, audiobookID string) error {
-	_, err := r.db.ExecContext(ctx, `
-		DELETE FROM user_library 
-		WHERE user_id = ? AND audiobook_id = ?
-	`, userID, audiobookID)
-	return err
 }
 
 // ListCatalogAudiobooks returns all audiobooks in the global catalog with user library status.
@@ -498,27 +478,24 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 		return nil, 0, err
 	}
 
-	// Then get the audiobooks with library status, file count, and total duration
+	// Then get the audiobooks with file count and total duration
 	baseQuery := `
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
 		       m.cover_url, m.series_info, m.release_date,
-		       ul.user_id IS NOT NULL as in_library,
-		       ul.added_at,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
 		FROM audiobooks a
 		LEFT JOIN book_metadata m ON m.id = a.metadata_id
-		LEFT JOIN user_library ul ON ul.audiobook_id = a.id AND ul.user_id = ?
 		LEFT JOIN (
-			SELECT audiobook_id, 
-			       COUNT(*) as file_count, 
+			SELECT audiobook_id,
+			       COUNT(*) as file_count,
 			       SUM(duration_sec) as total_duration
-			FROM media_files 
+			FROM media_files
 			GROUP BY audiobook_id
 		) mf_stats ON mf_stats.audiobook_id = a.id
 `
-	queryArgs := []interface{}{userID}
+	queryArgs := []interface{}{}
 	if libraryID != nil && *libraryID != "" {
 		baseQuery += "\nWHERE a.library_id = ?"
 		queryArgs = append(queryArgs, *libraryID)
@@ -541,8 +518,6 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
-		var inLibrary bool
-		var addedAt sql.NullString
 		var fileCount int
 		var totalDuration float64
 
@@ -550,7 +525,7 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
 			&coverURL, &seriesInfo, &releaseDate,
-			&inLibrary, &addedAt, &fileCount, &totalDuration,
+			&fileCount, &totalDuration,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -559,7 +534,6 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 		ab.MetadataID = nullableString(metadataID)
 		ab.CreatedAt = parseTime(createdAt)
 		ab.UpdatedAt = parseTime(updatedAt)
-		ab.InLibrary = inLibrary
 		ab.FileCount = fileCount
 		ab.TotalDurationSec = totalDuration
 		if metaRow.ID != "" {
@@ -575,19 +549,6 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 			}
 		}
 
-		// Add in_library information as part of user data
-		if inLibrary {
-			ud := &models.UserAudiobookData{
-				UserID:      userID,
-				AudiobookID: ab.ID,
-			}
-			if addedAt.Valid {
-				t := parseTime(addedAt.String)
-				ud.AddedAt = &t
-			}
-			ab.UserData = ud
-		}
-
 		audiobooks = append(audiobooks, ab)
 	}
 
@@ -598,16 +559,15 @@ func (r *Repository) ListCatalogAudiobooks(ctx context.Context, userID string, l
 	return audiobooks, total, nil
 }
 
-// ListUserLibraryAudiobooks returns audiobooks in a user's personal library.
+// ListUserLibraryAudiobooks returns audiobooks the user has interacted with (has user_audiobook_data).
 func (r *Repository) ListUserLibraryAudiobooks(ctx context.Context, userID string, libraryID *string, offset, limit int) ([]models.Audiobook, int, error) {
 	// First get total count
 	var total int
 	countQuery := `
-		SELECT COUNT(*) FROM user_library ul
-		JOIN audiobooks a ON a.id = ul.audiobook_id
-		WHERE ul.user_id = ?
+		SELECT COUNT(*) FROM audiobooks a
+		WHERE 1=1
 	`
-	countArgs := []interface{}{userID}
+	var countArgs []interface{}
 	if libraryID != nil && *libraryID != "" {
 		countQuery += " AND a.library_id = ?"
 		countArgs = append(countArgs, *libraryID)
@@ -623,13 +583,20 @@ func (r *Repository) ListUserLibraryAudiobooks(ctx context.Context, userID strin
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
 		       m.cover_url, m.series_info, m.release_date,
-		       ul.added_at,
-		       u.progress_sec, u.is_favorite, u.last_played_at
-		FROM user_library ul
-		JOIN audiobooks a ON a.id = ul.audiobook_id
+		       u.user_id, u.progress_sec, u.is_favorite, u.last_played_at,
+		       COALESCE(mf_stats.file_count, 0) as file_count,
+		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
+		FROM audiobooks a
 		LEFT JOIN book_metadata m ON m.id = a.metadata_id
-		LEFT JOIN user_audiobook_data u ON u.audiobook_id = a.id AND u.user_id = ul.user_id
-		WHERE ul.user_id = ?
+		LEFT JOIN user_audiobook_data u ON u.audiobook_id = a.id AND u.user_id = ?
+		LEFT JOIN (
+			SELECT audiobook_id,
+			       COUNT(*) as file_count,
+			       SUM(duration_sec) as total_duration
+			FROM media_files
+			GROUP BY audiobook_id
+		) mf_stats ON mf_stats.audiobook_id = a.id
+		WHERE 1=1
 `
 	queryArgs := []interface{}{userID}
 	if libraryID != nil && *libraryID != "" {
@@ -637,7 +604,7 @@ func (r *Repository) ListUserLibraryAudiobooks(ctx context.Context, userID strin
 		queryArgs = append(queryArgs, *libraryID)
 	}
 
-	query += "\nORDER BY ul.added_at DESC\nLIMIT ? OFFSET ?"
+	query += "\nORDER BY u.last_played_at DESC\nLIMIT ? OFFSET ?"
 	queryArgs = append(queryArgs, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, queryArgs...)
@@ -649,20 +616,24 @@ func (r *Repository) ListUserLibraryAudiobooks(ctx context.Context, userID strin
 	var audiobooks []models.Audiobook
 	for rows.Next() {
 		var ab models.Audiobook
-		var createdAt, updatedAt, addedAt string
+		var createdAt, updatedAt string
 		var metaRow models.BookMetadata
+		var metaID, title, author sql.NullString
 		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
+		var userIDVal, lastPlayedAt sql.NullString
 		var progress sql.NullFloat64
 		var favorite sql.NullInt64
-		var lastPlayedAt sql.NullString
+		var fileCount int
+		var totalDuration float64
 
 		if err := rows.Scan(
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
-			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
+			&metaID, &title, &subtitle, &author, &narrator, &description,
 			&coverURL, &seriesInfo, &releaseDate,
-			&addedAt, &progress, &favorite, &lastPlayedAt,
+			&userIDVal, &progress, &favorite, &lastPlayedAt,
+			&fileCount, &totalDuration,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -671,36 +642,38 @@ func (r *Repository) ListUserLibraryAudiobooks(ctx context.Context, userID strin
 		ab.MetadataID = nullableString(metadataID)
 		ab.CreatedAt = parseTime(createdAt)
 		ab.UpdatedAt = parseTime(updatedAt)
+		ab.FileCount = fileCount
+		ab.TotalDurationSec = totalDuration
 
-		if metaRow.ID != "" {
-			meta := metaRow
-			meta.Subtitle = nullableString(subtitle)
-			meta.Narrator = nullableString(narrator)
-			meta.Description = nullableString(description)
-			meta.CoverURL = nullableString(coverURL)
-			meta.SeriesInfo = nullableString(seriesInfo)
-			meta.ReleaseDate = nullableString(releaseDate)
-			if strings.TrimSpace(meta.Title) != "" {
-				ab.Metadata = &meta
+		if metaID.Valid && metaID.String != "" {
+			metaRow.ID = metaID.String
+			metaRow.Title = title.String
+			metaRow.Author = author.String
+			metaRow.Subtitle = nullableString(subtitle)
+			metaRow.Narrator = nullableString(narrator)
+			metaRow.Description = nullableString(description)
+			metaRow.CoverURL = nullableString(coverURL)
+			metaRow.SeriesInfo = nullableString(seriesInfo)
+			metaRow.ReleaseDate = nullableString(releaseDate)
+			if strings.TrimSpace(metaRow.Title) != "" {
+				ab.Metadata = &metaRow
 			}
 		}
 
-		// User data with library info
-		ud := models.UserAudiobookData{
-			UserID:      userID,
-			AudiobookID: ab.ID,
-			ProgressSec: progress.Float64,
-			IsFavorite:  favorite.Int64 == 1,
+		// User data - only set if user has interacted with this book
+		if userIDVal.Valid {
+			ud := models.UserAudiobookData{
+				UserID:      userIDVal.String,
+				AudiobookID: ab.ID,
+				ProgressSec: progress.Float64,
+				IsFavorite:  favorite.Int64 == 1,
+			}
+			if lastPlayedAt.Valid && lastPlayedAt.String != "" {
+				t := parseTime(lastPlayedAt.String)
+				ud.LastPlayedAt = &t
+			}
+			ab.UserData = &ud
 		}
-		if addedAt != "" {
-			t := parseTime(addedAt)
-			ud.AddedAt = &t
-		}
-		if lastPlayedAt.Valid && lastPlayedAt.String != "" {
-			t := parseTime(lastPlayedAt.String)
-			ud.LastPlayedAt = &t
-		}
-		ab.UserData = &ud
 
 		// Get media files
 		media, err := r.mediaFiles(ctx, ab.ID)
@@ -795,22 +768,21 @@ func (r *Repository) SearchCatalogAudiobooks(ctx context.Context, userID, query 
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
 		       m.cover_url, m.series_info, m.release_date,
-		       EXISTS(SELECT 1 FROM user_library ul WHERE ul.user_id = ? AND ul.audiobook_id = a.id) as in_library,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
 		FROM audiobooks a
 		LEFT JOIN book_metadata m ON m.id = a.metadata_id
 		LEFT JOIN (
-			SELECT audiobook_id, 
-			       COUNT(*) as file_count, 
+			SELECT audiobook_id,
+			       COUNT(*) as file_count,
 			       SUM(duration_sec) as total_duration
-			FROM media_files 
+			FROM media_files
 			GROUP BY audiobook_id
 		) mf_stats ON mf_stats.audiobook_id = a.id
 		WHERE (m.title LIKE ? OR m.author LIKE ? OR m.narrator LIKE ?)
 `
 
-	queryArgs := []interface{}{userID, searchPattern, searchPattern, searchPattern}
+	queryArgs := []interface{}{searchPattern, searchPattern, searchPattern}
 	if libraryID != nil && *libraryID != "" {
 		searchQuery += " AND a.library_id = ?"
 		queryArgs = append(queryArgs, *libraryID)
@@ -834,7 +806,6 @@ func (r *Repository) SearchCatalogAudiobooks(ctx context.Context, userID, query 
 		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
 		var metaID sql.NullString
 		var libraryID sql.NullString
-		var inLibrary bool
 		var fileCount int
 		var totalDuration float64
 
@@ -842,7 +813,7 @@ func (r *Repository) SearchCatalogAudiobooks(ctx context.Context, userID, query 
 			&ab.ID, &libraryID, &metaID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
 			&coverURL, &seriesInfo, &releaseDate,
-			&inLibrary, &fileCount, &totalDuration,
+			&fileCount, &totalDuration,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -851,7 +822,6 @@ func (r *Repository) SearchCatalogAudiobooks(ctx context.Context, userID, query 
 		ab.LibraryID = nullableString(libraryID)
 		ab.CreatedAt = parseTime(createdAt)
 		ab.UpdatedAt = parseTime(updatedAt)
-		ab.InLibrary = inLibrary
 		ab.FileCount = fileCount
 		ab.TotalDurationSec = totalDuration
 
@@ -1806,3 +1776,225 @@ func (r *Repository) GetEnabledLibraryPaths(ctx context.Context) ([]string, erro
 
 	return paths, nil
 }
+
+// GetContinueListening returns audiobooks the user is currently listening to, sorted by last played.
+func (r *Repository) GetContinueListening(ctx context.Context, userID string, libraryID *string, limit int) ([]models.Audiobook, error) {
+	query := `
+		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
+		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
+		       m.cover_url, m.series_info, m.release_date,
+		       u.progress_sec, u.is_favorite, u.last_played_at,
+		       COALESCE(mf_stats.file_count, 0) as file_count,
+		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
+		FROM user_audiobook_data u
+		JOIN audiobooks a ON a.id = u.audiobook_id
+		LEFT JOIN book_metadata m ON m.id = a.metadata_id
+		LEFT JOIN (
+			SELECT audiobook_id,
+			       COUNT(*) as file_count,
+			       SUM(duration_sec) as total_duration
+			FROM media_files
+			GROUP BY audiobook_id
+		) mf_stats ON mf_stats.audiobook_id = a.id
+		WHERE u.user_id = ? AND u.progress_sec > 0 AND u.last_played_at IS NOT NULL
+	`
+
+	queryArgs := []interface{}{userID}
+	if libraryID != nil && *libraryID != "" {
+		query += " AND a.library_id = ?"
+		queryArgs = append(queryArgs, *libraryID)
+	}
+
+	query += "\nORDER BY u.last_played_at DESC\nLIMIT ?"
+	queryArgs = append(queryArgs, limit)
+
+	rows, err := r.db.QueryContext(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var audiobooks []models.Audiobook
+	for rows.Next() {
+		var ab models.Audiobook
+		var createdAt, updatedAt string
+		var metaRow models.BookMetadata
+		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var metadataID sql.NullString
+		var libraryID sql.NullString
+		var progress sql.NullFloat64
+		var favorite sql.NullInt64
+		var lastPlayedAt sql.NullString
+		var fileCount int
+		var totalDuration float64
+
+		if err := rows.Scan(
+			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
+			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
+			&coverURL, &seriesInfo, &releaseDate,
+			&progress, &favorite, &lastPlayedAt,
+			&fileCount, &totalDuration,
+		); err != nil {
+			return nil, err
+		}
+
+		ab.LibraryID = nullableString(libraryID)
+		ab.MetadataID = nullableString(metadataID)
+		ab.CreatedAt = parseTime(createdAt)
+		ab.UpdatedAt = parseTime(updatedAt)
+		ab.FileCount = fileCount
+		ab.TotalDurationSec = totalDuration
+
+		if metaRow.ID != "" {
+			meta := metaRow
+			meta.Subtitle = nullableString(subtitle)
+			meta.Narrator = nullableString(narrator)
+			meta.Description = nullableString(description)
+			meta.CoverURL = nullableString(coverURL)
+			meta.SeriesInfo = nullableString(seriesInfo)
+			meta.ReleaseDate = nullableString(releaseDate)
+			if strings.TrimSpace(meta.Title) != "" {
+				ab.Metadata = &meta
+			}
+		}
+
+		// User data
+		ud := models.UserAudiobookData{
+			UserID:      userID,
+			AudiobookID: ab.ID,
+			ProgressSec: progress.Float64,
+			IsFavorite:  favorite.Int64 == 1,
+		}
+		if lastPlayedAt.Valid && lastPlayedAt.String != "" {
+			t := parseTime(lastPlayedAt.String)
+			ud.LastPlayedAt = &t
+		}
+		ab.UserData = &ud
+
+		audiobooks = append(audiobooks, ab)
+	}
+
+	return audiobooks, rows.Err()
+}
+
+// GetUserFavorites returns audiobooks the user has marked as favorite.
+func (r *Repository) GetUserFavorites(ctx context.Context, userID string, libraryID *string, offset, limit int) ([]models.Audiobook, int, error) {
+	// First get total count
+	countQuery := `
+		SELECT COUNT(*) FROM user_audiobook_data u
+		JOIN audiobooks a ON a.id = u.audiobook_id
+		WHERE u.user_id = ? AND u.is_favorite = 1
+	`
+	countArgs := []interface{}{userID}
+	if libraryID != nil && *libraryID != "" {
+		countQuery += " AND a.library_id = ?"
+		countArgs = append(countArgs, *libraryID)
+	}
+
+	var total int
+	err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Then get the audiobooks
+	query := `
+		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
+		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
+		       m.cover_url, m.series_info, m.release_date,
+		       u.progress_sec, u.is_favorite, u.last_played_at,
+		       COALESCE(mf_stats.file_count, 0) as file_count,
+		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
+		FROM user_audiobook_data u
+		JOIN audiobooks a ON a.id = u.audiobook_id
+		LEFT JOIN book_metadata m ON m.id = a.metadata_id
+		LEFT JOIN (
+			SELECT audiobook_id,
+			       COUNT(*) as file_count,
+			       SUM(duration_sec) as total_duration
+			FROM media_files
+			GROUP BY audiobook_id
+		) mf_stats ON mf_stats.audiobook_id = a.id
+		WHERE u.user_id = ? AND u.is_favorite = 1
+	`
+	queryArgs := []interface{}{userID}
+	if libraryID != nil && *libraryID != "" {
+		query += " AND a.library_id = ?"
+		queryArgs = append(queryArgs, *libraryID)
+	}
+
+	query += `
+		ORDER BY a.created_at DESC
+		LIMIT ? OFFSET ?
+	`
+	queryArgs = append(queryArgs, limit, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var audiobooks []models.Audiobook
+	for rows.Next() {
+		var ab models.Audiobook
+		var createdAt, updatedAt string
+		var metaRow models.BookMetadata
+		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var metadataID sql.NullString
+		var libraryID sql.NullString
+		var progress sql.NullFloat64
+		var favorite sql.NullInt64
+		var lastPlayedAt sql.NullString
+		var fileCount int
+		var totalDuration float64
+
+		if err := rows.Scan(
+			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
+			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
+			&coverURL, &seriesInfo, &releaseDate,
+			&progress, &favorite, &lastPlayedAt,
+			&fileCount, &totalDuration,
+		); err != nil {
+			return nil, 0, err
+		}
+
+		ab.LibraryID = nullableString(libraryID)
+		ab.MetadataID = nullableString(metadataID)
+		ab.CreatedAt = parseTime(createdAt)
+		ab.UpdatedAt = parseTime(updatedAt)
+		ab.FileCount = fileCount
+		ab.TotalDurationSec = totalDuration
+
+		if metaRow.ID != "" {
+			meta := metaRow
+			meta.Subtitle = nullableString(subtitle)
+			meta.Narrator = nullableString(narrator)
+			meta.Description = nullableString(description)
+			meta.CoverURL = nullableString(coverURL)
+			meta.SeriesInfo = nullableString(seriesInfo)
+			meta.ReleaseDate = nullableString(releaseDate)
+			if strings.TrimSpace(meta.Title) != "" {
+				ab.Metadata = &meta
+			}
+		}
+
+		// User data
+		ud := models.UserAudiobookData{
+			UserID:      userID,
+			AudiobookID: ab.ID,
+			ProgressSec: progress.Float64,
+			IsFavorite:  favorite.Int64 == 1,
+		}
+		if lastPlayedAt.Valid && lastPlayedAt.String != "" {
+			t := parseTime(lastPlayedAt.String)
+			ud.LastPlayedAt = &t
+		}
+		ab.UserData = &ud
+
+		audiobooks = append(audiobooks, ab)
+	}
+
+	return audiobooks, total, rows.Err()
+}
+

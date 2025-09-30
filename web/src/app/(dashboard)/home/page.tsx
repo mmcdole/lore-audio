@@ -1,156 +1,308 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Headset, Sparkles } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowRight, Heart, Headphones, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { useContinueListeningQuery } from "@/lib/api/hooks";
-import { useLibraryContext } from "@/providers/library-provider";
+import { useCatalogQuery } from "@/lib/api/hooks";
 
 export default function HomePage() {
-  const { selectedLibraryId } = useLibraryContext();
-  const { data: continueListening, isPending } =
-    useContinueListeningQuery(selectedLibraryId);
+  const { data, isPending } = useCatalogQuery({ libraryId: null });
+  const books = data?.data ?? [];
 
-  return (
-    <div className="space-y-8">
-      <section className="grid gap-6 rounded-3xl border border-border/30 bg-gradient-to-br from-primary/15 via-primary/5 to-background px-8 py-12 shadow-card">
-        <p className="inline-flex items-center gap-2 text-sm font-medium text-primary">
-          <Sparkles className="h-4 w-4" /> Resume listening
-        </p>
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-3">
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-              Dive back into your audiobook universe
-            </h2>
-            <p className="max-w-xl text-base text-muted-foreground">
-              Pick up right where you left off, explore freshly imported titles,
-              and discover personalized recommendations powered by your
-              listening habits.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild>
-                <Link href="/library">Browse library</Link>
-              </Button>
-              <Button asChild variant="ghost">
-                <Link href="/search" className="gap-2">
-                  Find new stories <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-          <div className="glass-surface rounded-2xl border border-border/40 p-5 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Listening streak</p>
-            <p className="mt-2 text-4xl font-semibold text-primary">12 days</p>
-            <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
-              Keep it going!
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {selectedLibraryId &&
-        continueListening &&
-        continueListening.length > 0 && (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {isPending ? (
-              <SkeletonCard count={3} />
-            ) : (
-              continueListening.map((entry) => (
-                <Card
-                  key={entry.audiobook.id}
-                  className="flex flex-col overflow-hidden"
-                >
-                  <CardHeader className="flex flex-row items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <Headset className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <CardTitle className="truncate text-base">
-                        {entry.audiobook.metadata?.title ?? "Untitled"}
-                      </CardTitle>
-                      <CardDescription className="truncate text-xs">
-                        {entry.audiobook.metadata?.author ?? "Unknown author"}
-                      </CardDescription>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-3">
-                    <ProgressBar
-                      progress={entry.user_data.progress_sec}
-                      duration={entry.audiobook.stats?.total_duration_sec ?? 0}
-                    />
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Last played</span>
-                      <span>
-                        {entry.user_data.last_played_at
-                          ? new Date(
-                              entry.user_data.last_played_at
-                            ).toLocaleDateString()
-                          : "-"}
-                      </span>
-                    </div>
-                    <Button asChild variant="glass">
-                      <Link
-                        href={`/library/${entry.audiobook.id}`}
-                        className="gap-2"
-                      >
-                        Resume listening <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </section>
-        )}
-    </div>
+  // Filter books into sections
+  const continueListening = useMemo(
+    () =>
+      books
+        .filter(
+          (book) =>
+            book.user_data?.progress_sec > 0 &&
+            book.user_data.progress_sec < book.total_duration_sec
+        )
+        .sort((a, b) => {
+          const aDate = a.user_data?.last_played_at
+            ? new Date(a.user_data.last_played_at).getTime()
+            : 0;
+          const bDate = b.user_data?.last_played_at
+            ? new Date(b.user_data.last_played_at).getTime()
+            : 0;
+          return bDate - aDate;
+        })
+        .slice(0, 10),
+    [books]
   );
-}
 
-function SkeletonCard({ count }: { count: number }) {
+  const recentlyAdded = useMemo(
+    () =>
+      [...books]
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        .slice(0, 10),
+    [books]
+  );
+
+  const favorites = useMemo(
+    () =>
+      books
+        .filter((book) => book.user_data?.is_favorite)
+        .sort((a, b) => {
+          const aDate = a.user_data?.last_played_at
+            ? new Date(a.user_data.last_played_at).getTime()
+            : 0;
+          const bDate = b.user_data?.last_played_at
+            ? new Date(b.user_data.last_played_at).getTime()
+            : 0;
+          return bDate - aDate;
+        })
+        .slice(0, 10),
+    [books]
+  );
+
   return (
     <>
-      {Array.from({ length: count }).map((_, index) => (
-        <div
-          key={index}
-          className="animate-pulse rounded-2xl border border-border/30 bg-card/60 p-6"
-        >
-          <div className="mb-4 h-4 w-2/5 rounded bg-white/10" />
-          <div className="mb-2 h-3 w-3/5 rounded bg-white/5" />
-          <div className="h-3 w-4/5 rounded bg-white/5" />
+      {/* Header */}
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Sparkles className="h-6 w-6" />
         </div>
-      ))}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Home</h1>
+          <p className="text-sm text-muted-foreground">
+            {continueListening.length === 0
+              ? "Start listening to your first audiobook"
+              : `${continueListening.length} ${continueListening.length === 1 ? "book" : "books"} in progress`}
+          </p>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div>
+        {isPending ? (
+          <div className="space-y-8">
+            <SectionSkeleton />
+            <SectionSkeleton />
+            <SectionSkeleton />
+          </div>
+        ) : (
+          <div className="space-y-12">
+            {/* Continue Listening */}
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Continue Listening</h2>
+                {continueListening.length > 0 && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/library?filter=in-progress" className="gap-2">
+                      View all <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+              {continueListening.length === 0 ? (
+                <EmptyState
+                  title="No audiobooks in progress"
+                  description="Books you've started will appear here"
+                  action={
+                    <Button asChild>
+                      <Link href="/library">Browse library</Link>
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="-mx-4 lg:-mx-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                    {continueListening.map((book) => (
+                      <BookCard key={book.id} book={book} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Recently Added */}
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Recently Added</h2>
+                {recentlyAdded.length > 0 && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/library" className="gap-2">
+                      View all <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+              {recentlyAdded.length === 0 ? (
+                <EmptyState
+                  title="No audiobooks yet"
+                  description="Import audiobooks to get started"
+                  action={
+                    <Button asChild>
+                      <Link href="/admin/imports">Import audiobooks</Link>
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="-mx-4 lg:-mx-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                    {recentlyAdded.map((book) => (
+                      <BookCard key={book.id} book={book} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Favorites */}
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Favorites</h2>
+                {favorites.length > 0 && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/favorites" className="gap-2">
+                      View all <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+              {favorites.length === 0 ? (
+                <EmptyState
+                  title="No favorites yet"
+                  description="Mark books as favorites to see them here"
+                  action={
+                    <Button asChild>
+                      <Link href="/library">Browse library</Link>
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="-mx-4 lg:-mx-8">
+                  <div className="flex gap-4 overflow-x-auto px-4 pb-4 lg:px-8">
+                    {favorites.map((book) => (
+                      <BookCard key={book.id} book={book} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
     </>
   );
 }
 
-function ProgressBar({
-  progress,
-  duration,
-}: {
-  progress: number;
-  duration: number;
-}) {
-  const value = duration
-    ? Math.min(100, Math.round((progress / duration) * 100))
-    : 0;
+function BookCard({ book }: { book: any }) {
+  const progressPercent =
+    book.user_data?.progress_sec && book.total_duration_sec
+      ? Math.round(
+          (book.user_data.progress_sec / book.total_duration_sec) * 100
+        )
+      : 0;
 
   return (
-    <div className="space-y-2">
-      <div className="h-2 w-full rounded-full bg-white/5">
-        <div
-          className="h-full rounded-full bg-primary transition-all"
-          style={{ width: `${value}%` }}
-        />
+    <Link
+      href={`/library/${book.id}`}
+      className="group relative flex-shrink-0 w-[200px] overflow-hidden rounded-lg border border-border/40 bg-card transition-all hover:border-border hover:shadow-lg"
+    >
+      {/* Cover */}
+      <div className="aspect-square overflow-hidden bg-muted">
+        {book.metadata?.cover_url ? (
+          <img
+            src={book.metadata.cover_url}
+            alt={book.metadata.title}
+            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-muted-foreground">
+            <Headphones className="h-12 w-12" />
+          </div>
+        )}
       </div>
-      <p className="text-xs text-muted-foreground">{value}% complete</p>
+
+      {/* Favorite badge */}
+      {book.user_data?.is_favorite && (
+        <div className="absolute right-2 top-2 rounded-full bg-primary/90 p-2 shadow-lg">
+          <Heart className="h-3 w-3 fill-current text-primary-foreground" />
+        </div>
+      )}
+
+      {/* Info */}
+      <div className="p-3">
+        <h3 className="line-clamp-2 text-sm font-semibold">
+          {book.metadata?.title || "Untitled"}
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
+          {book.metadata?.author || "Unknown Author"}
+        </p>
+
+        {/* Progress bar */}
+        {progressPercent > 0 && (
+          <div className="mt-2">
+            <div className="h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {progressPercent}% complete
+            </p>
+          </div>
+        )}
+
+        {/* Duration */}
+        {book.total_duration_sec && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {formatDuration(book.total_duration_sec)}
+          </p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg border border-border/40 bg-card/50 p-12 text-center">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+        <Headphones className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h3 className="mb-2 text-lg font-semibold">{title}</h3>
+      <p className="mb-6 text-sm text-muted-foreground">{description}</p>
+      {action}
     </div>
   );
+}
+
+function SectionSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="h-6 w-48 animate-pulse rounded bg-white/10" />
+      <div className="flex gap-4">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-64 w-[200px] flex-shrink-0 animate-pulse rounded-lg bg-card/60"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds) return "--";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
 }

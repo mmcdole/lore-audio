@@ -44,11 +44,15 @@ export async function apiFetch<TResponse>(path: string, options: ApiRequestOptio
   const { authToken, headers, searchParams, ...rest } = options;
   const url = buildUrl(path, searchParams);
 
+  // Development: use hardcoded token if no token provided
+  const devToken = "95b6c7945f0227edb9b39f2e62a914e4e17cd91c5fe6d7cd75cf24021d90d33f";
+  const token = authToken || devToken;
+
   const response = await fetch(url, {
     ...rest,
     headers: {
       "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers
     }
   });

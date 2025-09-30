@@ -44,12 +44,17 @@ export interface AuthResponse {
 
 export interface Audiobook {
   id: string;
+  library_id?: string | null;
+  library_path_id: string;
   metadata_id?: string | null;
   asset_path: string;
   created_at: string;
   updated_at: string;
   metadata?: BookMetadata | null;
-  stats?: AudiobookStats;
+  user_data?: UserAudiobookData | null;
+  file_count?: number;
+  total_duration_sec?: number;
+  media_files?: MediaFile[];
 }
 
 export interface AudiobookStats {
@@ -110,3 +115,48 @@ export interface LibraryScanResult {
   total_new_books: number;
   scan_duration: string;
 }
+
+// Series and Author types
+export interface SeriesInfo {
+  name: string;
+  book_count: number;
+  total_duration_sec: number;
+  user_progress?: SeriesProgress;
+}
+
+export interface SeriesProgress {
+  books_started: number;
+  books_completed: number;
+}
+
+export interface AuthorInfo {
+  name: string;
+  book_count: number;
+  user_stats?: AuthorUserStats;
+}
+
+export interface AuthorUserStats {
+  books_started: number;
+  books_completed: number;
+}
+
+// User stats
+export interface UserStats {
+  streak_days: number;
+  total_hours: number;
+  books_completed: number;
+  books_in_progress: number;
+  favorite_count: number;
+  listening_time_this_week: number;
+  listening_time_this_month: number;
+}
+
+// Filter counts for UI chips
+export interface FilterCounts {
+  all: number;
+  not_started: number;
+  listening: number;
+  completed: number;
+  favorites: number;
+}
+
