@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/flix-audio/backend/internal/auth"
+	"github.com/lore/backend/internal/auth"
 )
 
 // Authentication handlers

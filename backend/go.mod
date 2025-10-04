@@ -1,4 +1,4 @@
-module github.com/flix-audio/backend
+module github.com/lore/backend
 
 go 1.22.8
 

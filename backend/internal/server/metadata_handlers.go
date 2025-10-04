@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/flix-audio/backend/internal/auth"
-	"github.com/flix-audio/backend/internal/models"
+	"github.com/lore/backend/internal/auth"
+	"github.com/lore/backend/internal/models"
 )
 
 // =============================================================================

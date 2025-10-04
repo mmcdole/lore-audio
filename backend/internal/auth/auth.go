@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	apperrors "github.com/flix-audio/backend/internal/errors"
-	"github.com/flix-audio/backend/internal/models"
+	apperrors "github.com/lore/backend/internal/errors"
+	"github.com/lore/backend/internal/models"
 )
 
 // Use domain errors from the errors package

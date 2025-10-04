@@ -7,8 +7,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/flix-audio/backend/internal/auth"
-	apperrors "github.com/flix-audio/backend/internal/errors"
+	"github.com/lore/backend/internal/auth"
+	apperrors "github.com/lore/backend/internal/errors"
 )
 
 // ErrorMiddleware handles errors consistently across all endpoints

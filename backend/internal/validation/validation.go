@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	apperrors "github.com/flix-audio/backend/internal/errors"
+	apperrors "github.com/lore/backend/internal/errors"
 )
 
 // Validator provides input validation utilities

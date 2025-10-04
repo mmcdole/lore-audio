@@ -7,11 +7,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"github.com/flix-audio/backend/internal/auth"
-	"github.com/flix-audio/backend/internal/services/audiobooks"
-	importservice "github.com/flix-audio/backend/internal/services/import"
-	"github.com/flix-audio/backend/internal/services/library"
-	"github.com/flix-audio/backend/internal/validation"
+	"github.com/lore/backend/internal/auth"
+	"github.com/lore/backend/internal/services/audiobooks"
+	importservice "github.com/lore/backend/internal/services/import"
+	"github.com/lore/backend/internal/services/library"
+	"github.com/lore/backend/internal/validation"
 )
 
 // New constructs the HTTP handler exposing the audiobook API.

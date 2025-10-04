@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/flix-audio/backend/internal/models"
-	"github.com/flix-audio/backend/internal/repository"
+	"github.com/lore/backend/internal/models"
+	"github.com/lore/backend/internal/repository"
 )
 
 // Service handles import operations from staging folders.

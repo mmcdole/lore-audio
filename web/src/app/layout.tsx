@@ -23,8 +23,8 @@ export const metadata: Metadata = {
     default: `${APP_NAME} · Listen without limits`,
     template: `%s · ${APP_NAME}`
   },
-  description: "A modern audiobook streaming experience built on the Flix Audio platform.",
-  metadataBase: new URL("https://flix-audio.local"),
+  description: "A modern audiobook streaming experience.",
+  metadataBase: new URL("https://lore.local"),
   icons: [{ rel: "icon", url: "/favicon.ico" }]
 };
 

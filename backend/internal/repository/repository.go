@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flix-audio/backend/internal/models"
+	"github.com/lore/backend/internal/models"
 )
 
 // Repository wraps database access for the audiobook domain.

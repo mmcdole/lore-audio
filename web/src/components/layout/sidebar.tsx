@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Heart,
-  Headset,
   Home,
   Library,
   ListMusic,
@@ -74,15 +73,10 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-full w-64 flex-col border-r border-border/40 bg-gradient-to-b from-background/95 to-background/60 px-4 pb-6 pt-8 lg:flex">
-      <div className="mb-8 flex items-center gap-2 px-1">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
-          <Headset className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">
-            Flix Audio
-          </h2>
-        </div>
+      <div className="mb-8 px-1">
+        <h1 className="text-4xl font-black tracking-[0.5em] text-primary uppercase">
+          LORE
+        </h1>
       </div>
 
       {isSettingsPage ? (

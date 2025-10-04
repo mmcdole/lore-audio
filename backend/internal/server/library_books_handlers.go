@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	apperrors "github.com/flix-audio/backend/internal/errors"
+	apperrors "github.com/lore/backend/internal/errors"
 )
 
 func (h *handler) handleLibraryBooksList(w http.ResponseWriter, r *http.Request) {

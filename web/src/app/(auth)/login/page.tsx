@@ -48,7 +48,7 @@ export default function LoginPage() {
   return (
     <div className="glass-surface rounded-3xl border border-border/30 bg-card/80 p-8 shadow-card backdrop-blur-xl">
       <div className="mb-6 text-center">
-        <p className="text-xs uppercase tracking-widest text-primary">Flix Audio</p>
+        <p className="text-xs uppercase tracking-widest text-primary">Lore</p>
         <h1 className="mt-3 text-3xl font-semibold text-foreground">Sign in to your library</h1>
         <p className="mt-2 text-sm text-muted-foreground">Stream your audiobooks anywhere, anytime.</p>
       </div>

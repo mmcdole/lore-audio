@@ -7,15 +7,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flix-audio/backend/internal/auth"
-	"github.com/flix-audio/backend/internal/config"
-	"github.com/flix-audio/backend/internal/database"
-	"github.com/flix-audio/backend/internal/metadata"
-	"github.com/flix-audio/backend/internal/repository"
-	"github.com/flix-audio/backend/internal/server"
-	audiobooksvc "github.com/flix-audio/backend/internal/services/audiobooks"
-	importsvc "github.com/flix-audio/backend/internal/services/import"
-	librarysvc "github.com/flix-audio/backend/internal/services/library"
+	"github.com/lore/backend/internal/auth"
+	"github.com/lore/backend/internal/config"
+	"github.com/lore/backend/internal/database"
+	"github.com/lore/backend/internal/metadata"
+	"github.com/lore/backend/internal/repository"
+	"github.com/lore/backend/internal/server"
+	audiobooksvc "github.com/lore/backend/internal/services/audiobooks"
+	importsvc "github.com/lore/backend/internal/services/import"
+	librarysvc "github.com/lore/backend/internal/services/library"
 )
 
 // Run configures dependencies and starts the HTTP server until the context ends.

@@ -1,6 +1,6 @@
 # Metadata System
 
-Flix Audio uses a **3-tier layered metadata system** inspired by Plex, where metadata from multiple sources is merged with a clear priority hierarchy. This allows users to benefit from rich external metadata while maintaining manual control over specific fields through field-level locking.
+Lore uses a **3-tier layered metadata system** inspired by Plex, where metadata from multiple sources is merged with a clear priority hierarchy. This allows users to benefit from rich external metadata while maintaining manual control over specific fields through field-level locking.
 
 ## Overview
 

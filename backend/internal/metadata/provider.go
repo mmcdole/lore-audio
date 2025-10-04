@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/flix-audio/backend/internal/models"
+	"github.com/lore/backend/internal/models"
 )
 
 // Provider fetches book metadata details from an external source.

@@ -15,11 +15,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/flix-audio/backend/internal/library"
-	"github.com/flix-audio/backend/internal/metadata"
-	"github.com/flix-audio/backend/internal/models"
-	"github.com/flix-audio/backend/internal/providers"
-	"github.com/flix-audio/backend/internal/repository"
+	"github.com/lore/backend/internal/library"
+	"github.com/lore/backend/internal/metadata"
+	"github.com/lore/backend/internal/models"
+	"github.com/lore/backend/internal/providers"
+	"github.com/lore/backend/internal/repository"
 )
 
 // Service coordinates media storage, metadata, and persistence for audiobooks.

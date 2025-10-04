@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Flix Audio is a full-stack audiobook management and streaming application with a Go backend and Next.js frontend. The application supports multi-library management, user authentication, audiobook metadata, and audio streaming with progress tracking.
+Lore is a full-stack audiobook management and streaming application with a Go backend and Next.js frontend. The application supports multi-library management, user authentication, audiobook metadata, and audio streaming with progress tracking.
 
 ## Architecture
 
@@ -91,7 +91,7 @@ npm run lint
 
 Backend (`.env` in `backend/`):
 - `SERVER_ADDR`: Server address (default: `:8080`)
-- `DATABASE_PATH`: SQLite database path (default: `data/flix_audio.db`)
+- `DATABASE_PATH`: SQLite database path (default: `data/lore.db`)
 - `ADMIN_USERNAME`: Default admin username (default: `admin`)
 - `ADMIN_PASSWORD`: Default admin password (default: `admin`)
 - `LIBRARY_ROOT`: Root directory for browsing library paths (default: `.`)

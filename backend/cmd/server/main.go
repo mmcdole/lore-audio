@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/flix-audio/backend/internal/app"
-	"github.com/flix-audio/backend/internal/config"
+	"github.com/lore/backend/internal/app"
+	"github.com/lore/backend/internal/config"
 )
 
 func main() {

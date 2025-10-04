@@ -1,7 +1,7 @@
 {
-  "name": "flix-audio-mobile",
+  "name": "lore-mobile",
   "version": "1.0.0",
-  "description": "Flix Audio Mobile Client",
+  "description": "Lore Mobile Client",
   "private": true,
   "scripts": {
     "dev": "echo 'Add your development command here'",

@@ -37,7 +37,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="w-full max-w-md px-6 py-12">
         {children}
         <p className="mt-8 text-center text-xs text-muted-foreground">
-          By signing in you agree to the Flix Audio terms of service and privacy policy.
+          By signing in you agree to the Lore terms of service and privacy policy.
         </p>
       </div>
     </div>

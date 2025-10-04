@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/flix-audio/backend/internal/testdata"
+	"github.com/lore/backend/internal/testdata"
 )
 
 func main() {

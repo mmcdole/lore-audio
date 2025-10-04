@@ -1,4 +1,4 @@
-# Flix Audio Backend
+# Lore Backend
 
 Go-based audiobook management and streaming server with multi-library support, user authentication, and import workflows.
 
@@ -54,7 +54,7 @@ Environment variables (`.env`):
 
 ```bash
 SERVER_ADDR=:8080                          # Listen address
-DATABASE_PATH=data/flix_audio.db           # SQLite database
+DATABASE_PATH=data/lore.db                 # SQLite database
 ADMIN_USERNAME=admin                       # Default admin
 ADMIN_PASSWORD=admin                       # Default password
 LIBRARY_ROOT=.                             # Browse root for library paths
