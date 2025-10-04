@@ -19,7 +19,8 @@ func ErrorMiddleware(next http.Handler) http.Handler {
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				// Handle panics gracefully
+				// Handle panics gracefully - log the error
+				log.Printf("PANIC recovered: %v", rec)
 				respondError(rw, http.StatusInternalServerError, "An unexpected error occurred")
 			}
 		}()

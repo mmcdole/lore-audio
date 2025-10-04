@@ -67,9 +67,9 @@ func New(svc *audiobooks.Service, authSvc *auth.Service, librarySvc *library.Ser
 				r.Get("/", s.handleLibraryList)
 				r.Get("/continue", s.handleLibraryContinue)
 				r.Get("/favorites", s.handleLibraryFavorites)
-				r.Get("/{audiobook_id}", s.handleLibraryGet)
 
 				r.Route("/{audiobook_id}", func(r chi.Router) {
+					r.Get("/", s.handleLibraryGet)
 					r.Post("/progress", s.handleLibraryProgress)
 					r.Post("/favorite", s.handleLibraryFavorite)
 				})
@@ -152,8 +152,17 @@ func New(svc *audiobooks.Service, authSvc *auth.Service, librarySvc *library.Ser
 				r.Route("/audiobooks", func(r chi.Router) {
 					r.Post("/", s.handleAdminAudiobookCreate)
 					r.Delete("/{audiobook_id}", s.handleAdminAudiobookDelete)
-					r.Put("/{audiobook_id}/link", s.handleAdminAudiobookLink)
+					r.Put("/{audiobook_id}/link", s.handleLinkMetadata)
 					r.Delete("/{audiobook_id}/link", s.handleAdminAudiobookUnlink)
+
+					// Metadata management
+					r.Route("/{id}/metadata", func(r chi.Router) {
+						r.Patch("/", s.handleUpdateAudiobookMetadata)
+						r.Delete("/overrides", s.handleClearMetadataOverrides)
+						r.Post("/extract", s.handleExtractEmbeddedMetadata)
+						r.Get("/layers", s.handleGetMetadataLayers)
+					r.Post("/link", s.handleLinkMetadata)
+					})
 				})
 
 				r.Route("/users", func(r chi.Router) {
@@ -170,7 +179,7 @@ func New(svc *audiobooks.Service, authSvc *auth.Service, librarySvc *library.Ser
 			})
 
 			// Metadata search (authenticated users)
-			r.Get("/metadata/search", s.handleMetadataSearch)
+			r.Get("/metadata/search", s.handleSearchMetadata)
 
 			// Media streaming (authorization checked within handler)
 			r.Get("/media_files/{file_id}", s.handleMediaFileStream)

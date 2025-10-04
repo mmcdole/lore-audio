@@ -18,7 +18,7 @@ func main() {
 	// Get database path from environment or use default
 	dbPath := os.Getenv("DATABASE_PATH")
 	if dbPath == "" {
-		dbPath = "data/flix.db"
+		dbPath = "data/flix_audio.db"
 	}
 
 	// Open database

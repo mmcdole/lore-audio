@@ -2,11 +2,14 @@ package testdata
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type TestBook struct {
@@ -54,10 +57,13 @@ func SeedTestBooks(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("failed to create non-fiction library: %w", err)
 	}
 
+	// All users have access to all libraries (no access control needed)
+
 	// Create fiction books
 	fictionBooks := getFictionBooks()
 	for i, book := range fictionBooks {
-		if err := createTestBook(ctx, db, fictionLibraryID, fictionPathID, userID, book); err != nil {
+		_, err := createTestBook(ctx, db, fictionLibraryID, fictionPathID, userID, book)
+		if err != nil {
 			return fmt.Errorf("failed to create fiction book %d: %w", i, err)
 		}
 	}
@@ -65,7 +71,8 @@ func SeedTestBooks(ctx context.Context, db *sql.DB) error {
 	// Create non-fiction books
 	nonfictionBooks := getNonfictionBooks()
 	for i, book := range nonfictionBooks {
-		if err := createTestBook(ctx, db, nonfictionLibraryID, nonfictionPathID, userID, book); err != nil {
+		_, err := createTestBook(ctx, db, nonfictionLibraryID, nonfictionPathID, userID, book)
+		if err != nil {
 			return fmt.Errorf("failed to create non-fiction book %d: %w", i, err)
 		}
 	}
@@ -87,6 +94,8 @@ func clearTestData(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+
+	// No user_library_access table to clean up
 
 	// Delete test libraries and library paths
 	_, err = db.ExecContext(ctx, `DELETE FROM libraries WHERE name IN ('fiction-library', 'nonfiction-library', 'test-library')`)
@@ -127,31 +136,78 @@ func createTestLibrary(ctx context.Context, db *sql.DB, libraryID, libraryPathID
 	return err
 }
 
-func getOrCreateTestUser(ctx context.Context, db *sql.DB) (string, error) {
-	// Try to get existing admin user
-	var userID string
-	err := db.QueryRowContext(ctx, `SELECT id FROM users WHERE username = 'admin' LIMIT 1`).Scan(&userID)
-	if err == nil {
-		fmt.Printf("📝 Using existing admin user: %s\n", userID)
-		return userID, nil
-	}
-
-	// If no admin exists, create test user
-	userID = uuid.NewString()
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.ExecContext(ctx, `
-		INSERT INTO users (id, username, password_hash, is_admin, created_at)
-		VALUES (?, ?, ?, 1, ?)
-	`, userID, "testuser", "$2a$10$dummy_hash_for_testing", now)
-	if err != nil {
+func generateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-
-	fmt.Printf("📝 Created test user: %s\n", userID)
-	return userID, nil
+	return hex.EncodeToString(b), nil
 }
 
-func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, userID string, book TestBook) error {
+func getOrCreateTestUser(ctx context.Context, db *sql.DB) (string, error) {
+	// Generate bcrypt hashes for passwords
+	adminPasswordHash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash admin password: %w", err)
+	}
+	userPasswordHash, err := bcrypt.GenerateFromPassword([]byte("user"), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash user password: %w", err)
+	}
+
+	// Create admin user
+	var adminID string
+	err = db.QueryRowContext(ctx, `SELECT id FROM users WHERE username = 'admin' LIMIT 1`).Scan(&adminID)
+	if err != nil {
+		// Admin doesn't exist, create it
+		adminID = uuid.NewString()
+		adminAPIKey, _ := generateAPIKey()
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err = db.ExecContext(ctx, `
+			INSERT INTO users (id, username, password_hash, is_admin, api_key, created_at)
+			VALUES (?, ?, ?, 1, ?, ?)
+		`, adminID, "admin", string(adminPasswordHash), adminAPIKey, now)
+		if err != nil {
+			return "", fmt.Errorf("failed to create admin user: %w", err)
+		}
+		fmt.Printf("📝 Created admin user: %s\n", adminID)
+	} else {
+		// Admin exists, update password to "admin"
+		adminAPIKey, _ := generateAPIKey()
+		db.ExecContext(ctx, `UPDATE users SET password_hash = ?, api_key = ? WHERE id = ?`, string(adminPasswordHash), adminAPIKey, adminID)
+		fmt.Printf("📝 Updated admin user: %s\n", adminID)
+	}
+	fmt.Println("   Login with: username=admin, password=admin")
+
+	// Create regular user
+	var regularUserID string
+	err = db.QueryRowContext(ctx, `SELECT id FROM users WHERE username = 'user' LIMIT 1`).Scan(&regularUserID)
+	if err != nil {
+		// Regular user doesn't exist, create it
+		regularUserID = uuid.NewString()
+		userAPIKey, _ := generateAPIKey()
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err = db.ExecContext(ctx, `
+			INSERT INTO users (id, username, password_hash, is_admin, api_key, created_at)
+			VALUES (?, ?, ?, 0, ?, ?)
+		`, regularUserID, "user", string(userPasswordHash), userAPIKey, now)
+		if err != nil {
+			return "", fmt.Errorf("failed to create regular user: %w", err)
+		}
+		fmt.Printf("📝 Created regular user: %s\n", regularUserID)
+	} else {
+		// Regular user exists, update password
+		userAPIKey, _ := generateAPIKey()
+		db.ExecContext(ctx, `UPDATE users SET password_hash = ?, api_key = ? WHERE id = ?`, string(userPasswordHash), userAPIKey, regularUserID)
+		fmt.Printf("📝 Updated regular user: %s\n", regularUserID)
+	}
+	fmt.Println("   Login with: username=user, password=user")
+
+	// Return admin ID for test data creation
+	return adminID, nil
+}
+
+func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, userID string, book TestBook) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Create metadata
@@ -174,11 +230,14 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 	}
 
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO book_metadata (id, title, subtitle, author, narrator, description, cover_url, series_info)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, metadataID, book.Title, subtitle, book.Author, narrator, description, coverURL, seriesInfo)
+		INSERT INTO audiobook_metadata_agent (
+			id, title, subtitle, author, narrator, description, cover_url, series_info,
+			source, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, metadataID, book.Title, subtitle, book.Author, narrator, description, coverURL, seriesInfo, "seed", now, now)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Create audiobook
@@ -189,7 +248,7 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, audiobookID, libraryID, libraryPathID, metadataID, assetPath, now, now)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Create media file (single file per book for simplicity)
@@ -199,7 +258,7 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 		VALUES (?, ?, ?, ?, ?)
 	`, mediaFileID, audiobookID, "audiobook.m4b", book.DurationSec, "audio/x-m4b")
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Create user data if book has progress, is favorite, or has been played
@@ -220,12 +279,12 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 			VALUES (?, ?, ?, ?, ?)
 		`, userID, audiobookID, book.ProgressSec, isFavInt, lastPlayedAt)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	fmt.Printf("  ✓ Created: %s by %s\n", book.Title, book.Author)
-	return nil
+	return audiobookID, nil
 }
 
 func getFictionBooks() []TestBook {
@@ -236,7 +295,133 @@ func getFictionBooks() []TestBook {
 	lastMonth := now.Add(-30 * 24 * time.Hour)
 
 	return []TestBook{
-		// Not Started (no user_data) - 5 books
+		// The Expanse series (5 books - completed series)
+		{
+			Title:        "Leviathan Wakes",
+			Author:       "James S.A. Corey",
+			Narrator:     "Jefferson Mays",
+			Description:  "The first book in The Expanse series...",
+			SeriesInfo:   `{"name":"The Expanse","sequence":1}`,
+			DurationSec:  62640, // 17.4 hours
+			ProgressSec:  62640, // 100% complete
+			IsFavorite:   true,
+			LastPlayedAt: &lastMonth,
+		},
+		{
+			Title:        "Caliban's War",
+			Author:       "James S.A. Corey",
+			Narrator:     "Jefferson Mays",
+			Description:  "The second book in The Expanse series...",
+			SeriesInfo:   `{"name":"The Expanse","sequence":2}`,
+			DurationSec:  74520, // 20.7 hours
+			ProgressSec:  74520, // 100% complete
+			LastPlayedAt: &lastMonth,
+		},
+		{
+			Title:        "Abaddon's Gate",
+			Author:       "James S.A. Corey",
+			Narrator:     "Jefferson Mays",
+			Description:  "The third book in The Expanse series...",
+			SeriesInfo:   `{"name":"The Expanse","sequence":3}`,
+			DurationSec:  70200, // 19.5 hours
+			ProgressSec:  35100, // 50% complete
+			IsFavorite:   true,
+			LastPlayedAt: &yesterday,
+		},
+		{
+			Title:       "Cibola Burn",
+			Author:      "James S.A. Corey",
+			Narrator:    "Jefferson Mays",
+			Description: "The fourth book in The Expanse series...",
+			SeriesInfo:  `{"name":"The Expanse","sequence":4}`,
+			DurationSec: 73800, // 20.5 hours
+		},
+		{
+			Title:       "Nemesis Games",
+			Author:      "James S.A. Corey",
+			Narrator:    "Jefferson Mays",
+			Description: "The fifth book in The Expanse series...",
+			SeriesInfo:  `{"name":"The Expanse","sequence":5}`,
+			DurationSec: 68400, // 19 hours
+		},
+
+		// The Kingkiller Chronicle (2 books)
+		{
+			Title:        "The Name of the Wind",
+			Author:       "Patrick Rothfuss",
+			Narrator:     "Nick Podehl",
+			Description:  "The tale of Kvothe, from his childhood in a troupe of traveling players...",
+			SeriesInfo:   `{"name":"The Kingkiller Chronicle","sequence":1}`,
+			DurationSec:  97200,  // 27 hours
+			ProgressSec:  24300,  // 25% complete
+			IsFavorite:   true,
+			LastPlayedAt: &yesterday,
+		},
+		{
+			Title:       "The Wise Man's Fear",
+			Author:      "Patrick Rothfuss",
+			Narrator:    "Nick Podehl",
+			Description: "The second day of the story of Kvothe's life...",
+			SeriesInfo:  `{"name":"The Kingkiller Chronicle","sequence":2}`,
+			DurationSec: 151200, // 42 hours
+		},
+
+		// The Stormlight Archive (3 books)
+		{
+			Title:        "The Way of Kings",
+			Author:       "Brandon Sanderson",
+			Narrator:     "Michael Kramer, Kate Reading",
+			Description:  "The first book in the epic Stormlight Archive series...",
+			SeriesInfo:   `{"name":"The Stormlight Archive","sequence":1}`,
+			DurationSec:  165600, // 46 hours
+			ProgressSec:  124200, // 75% complete
+			IsFavorite:   true,
+			LastPlayedAt: &yesterday,
+		},
+		{
+			Title:        "Words of Radiance",
+			Author:       "Brandon Sanderson",
+			Narrator:     "Michael Kramer, Kate Reading",
+			Description:  "The second book in The Stormlight Archive...",
+			SeriesInfo:   `{"name":"The Stormlight Archive","sequence":2}`,
+			DurationSec:  172800, // 48 hours
+			ProgressSec:  43200,  // 25% complete
+			LastPlayedAt: &twoDaysAgo,
+		},
+		{
+			Title:       "Oathbringer",
+			Author:      "Brandon Sanderson",
+			Narrator:    "Michael Kramer, Kate Reading",
+			Description: "The third book in The Stormlight Archive...",
+			SeriesInfo:  `{"name":"The Stormlight Archive","sequence":3}`,
+			DurationSec: 198000, // 55 hours
+		},
+
+		// Harry Potter (2 books for now)
+		{
+			Title:        "Harry Potter and the Sorcerer's Stone",
+			Author:       "J.K. Rowling",
+			Narrator:     "Jim Dale",
+			Description:  "The story of Harry Potter, a young wizard who discovers his magical heritage...",
+			SeriesInfo:   `{"name":"Harry Potter","sequence":1}`,
+			DurationSec:  28800, // 8 hours
+			ProgressSec:  28800, // 100% complete
+			IsFavorite:   true,
+			LastPlayedAt: &lastWeek,
+		},
+		{
+			Title:        "Harry Potter and the Chamber of Secrets",
+			Author:       "J.K. Rowling",
+			Narrator:     "Jim Dale",
+			Description:  "Harry's second year at Hogwarts...",
+			SeriesInfo:   `{"name":"Harry Potter","sequence":2}`,
+			DurationSec:  32400, // 9 hours
+			ProgressSec:  32400, // 100% complete
+			IsFavorite:   true,
+			LastPlayedAt: &lastWeek,
+		},
+
+		// Standalone books
 		{
 			Title:       "The Midnight Library",
 			Author:      "Matt Haig",
@@ -252,33 +437,6 @@ func getFictionBooks() []TestBook {
 			DurationSec: 57600, // 16 hours
 		},
 		{
-			Title:       "The Silent Patient",
-			Author:      "Alex Michaelides",
-			Narrator:    "Louise Brealey, Jack Hawkins",
-			Description: "A woman shoots her husband and then never speaks again...",
-			DurationSec: 30600, // 8.5 hours
-		},
-		{
-			Title:       "The Alchemist",
-			Author:      "Paulo Coelho",
-			Narrator:    "Jeremy Irons",
-			Description: "A mystical story about a young Spanish shepherd and his journey to find treasure.",
-			DurationSec: 14400, // 4 hours
-		},
-
-		// In Progress - 4 books
-		{
-			Title:        "The Name of the Wind",
-			Author:       "Patrick Rothfuss",
-			Narrator:     "Nick Podehl",
-			Description:  "The tale of Kvothe, from his childhood in a troupe of traveling players...",
-			SeriesInfo:   `{"name":"The Kingkiller Chronicle","sequence":1}`,
-			DurationSec:  97200,  // 27 hours
-			ProgressSec:  24300,  // 25% complete
-			IsFavorite:   true,
-			LastPlayedAt: &yesterday,
-		},
-		{
 			Title:        "Dune",
 			Author:       "Frank Herbert",
 			Narrator:     "Scott Brick",
@@ -286,17 +444,6 @@ func getFictionBooks() []TestBook {
 			DurationSec:  75600,  // 21 hours
 			ProgressSec:  37800,  // 50% complete
 			LastPlayedAt: &twoDaysAgo,
-		},
-		{
-			Title:        "The Way of Kings",
-			Author:       "Brandon Sanderson",
-			Narrator:     "Michael Kramer, Kate Reading",
-			Description:  "The first book in the epic Stormlight Archive series...",
-			SeriesInfo:   `{"name":"The Stormlight Archive","sequence":1}`,
-			DurationSec:  165600, // 46 hours
-			ProgressSec:  124200, // 75% complete
-			IsFavorite:   true,
-			LastPlayedAt: &yesterday,
 		},
 		{
 			Title:        "The Song of Achilles",
@@ -307,19 +454,6 @@ func getFictionBooks() []TestBook {
 			ProgressSec:  39200,  // 95% complete
 			LastPlayedAt: &yesterday,
 		},
-
-		// Completed - 3 books
-		{
-			Title:        "Harry Potter and the Sorcerer's Stone",
-			Author:       "J.K. Rowling",
-			Narrator:     "Jim Dale",
-			Description:  "The story of Harry Potter, a young wizard who discovers his magical heritage...",
-			SeriesInfo:   `{"name":"Harry Potter","sequence":1}`,
-			DurationSec:  28800, // 8 hours
-			ProgressSec:  28800, // 100% complete
-			IsFavorite:   true,
-			LastPlayedAt: &lastWeek,
-		},
 		{
 			Title:        "The Hobbit",
 			Author:       "J.R.R. Tolkien",
@@ -329,18 +463,6 @@ func getFictionBooks() []TestBook {
 			ProgressSec:  39600, // 100% complete
 			LastPlayedAt: &lastMonth,
 		},
-		{
-			Title:        "The Lord of the Rings",
-			Author:       "J.R.R. Tolkien",
-			Narrator:     "Andy Serkis",
-			Description:  "An epic high fantasy novel...",
-			DurationSec:  54000, // 15 hours
-			ProgressSec:  54000, // 100% complete
-			IsFavorite:   true,
-			LastPlayedAt: &lastWeek,
-		},
-
-		// Additional books for variety
 		{
 			Title:       "The Martian",
 			Author:      "Andy Weir",

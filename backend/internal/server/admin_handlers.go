@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/flix-audio/backend/internal/metadata"
 )
 
 // Admin handlers
@@ -162,36 +161,6 @@ func (h *handler) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "user deleted successfully"})
 }
 
-func (h *handler) handleAdminAudiobookLink(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "audiobook_id")
-	var req struct {
-		MetadataID string `json:"metadata_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.MetadataID == "" {
-		respondError(w, http.StatusBadRequest, "metadata_id is required")
-		return
-	}
-
-	audiobook, err := h.svc.LinkMetadata(r.Context(), id, req.MetadataID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			respondError(w, http.StatusNotFound, "audiobook not found")
-			return
-		}
-		if errors.Is(err, metadata.ErrNotImplemented) {
-			respondError(w, http.StatusNotImplemented, "metadata provider not configured")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]interface{}{"data": audiobook})
-}
 
 func (h *handler) handleAdminAudiobookUnlink(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "audiobook_id")
@@ -207,24 +176,6 @@ func (h *handler) handleAdminAudiobookUnlink(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": audiobook})
 }
 
-func (h *handler) handleMetadataSearch(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	if query == "" {
-		respondError(w, http.StatusBadRequest, "q parameter is required")
-		return
-	}
-
-	results, err := h.svc.SearchMetadata(r.Context(), query)
-	if err != nil {
-		if errors.Is(err, metadata.ErrNotImplemented) {
-			respondError(w, http.StatusNotImplemented, "metadata search not configured")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"data": results})
-}
 
 // Request types
 type createAudiobookRequest struct {

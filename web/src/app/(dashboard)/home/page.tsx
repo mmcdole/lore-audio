@@ -204,7 +204,7 @@ function BookCard({ book }: { book: any }) {
   return (
     <Link
       href={`/library/${book.id}`}
-      className="group relative flex-shrink-0 w-[200px] overflow-hidden rounded-lg border border-border/40 bg-card transition-all hover:border-border hover:shadow-lg"
+      className="group relative flex-shrink-0 w-[200px] overflow-hidden rounded-lg border border-border/40 bg-card transition-all hover:border-border hover:shadow-xl hover:-translate-y-1"
     >
       {/* Cover */}
       <div className="aspect-square overflow-hidden bg-muted">

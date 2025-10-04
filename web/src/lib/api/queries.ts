@@ -17,6 +17,7 @@ export const queryKeys = {
   library: {
     list: (libraryId?: string | null) =>
       ["library", "list", { libraryId: libraryId ?? null }] as const,
+    detail: (audiobookId: string) => ["library", "detail", audiobookId] as const,
     continueListening: (libraryId?: string | null) =>
       ["library", "continue", { libraryId: libraryId ?? null }] as const,
     favorites: (libraryId?: string | null) =>

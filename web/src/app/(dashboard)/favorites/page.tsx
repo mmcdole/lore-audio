@@ -20,7 +20,7 @@ type SortOption = "recently-added" | "title-az" | "author-az" | "recently-played
 
 export default function FavoritesPage() {
   const { selectedLibraryId } = useLibraryContext();
-  const { data, isLoading, error} = useFavoritesQuery(selectedLibraryId);
+  const { data, isLoading, error } = useFavoritesQuery(selectedLibraryId);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [sortBy, setSortBy] = useState<SortOption>("recently-added");
@@ -134,57 +134,37 @@ export default function FavoritesPage() {
       {/* Search and Filters */}
       {!isEmpty && (
         <div className="border-b border-border/40 bg-background/95 px-6 py-4">
-          <div className="flex flex-col gap-4">
-            {/* Search */}
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search favorites..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="pl-9 h-10"
               />
             </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Filter chips */}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={filterStatus === "all" ? "default" : "outline"}
-                  onClick={() => setFilterStatus("all")}
-                >
-                  All
-                </Button>
-                <Button
-                  size="sm"
-                  variant={filterStatus === "in-progress" ? "default" : "outline"}
-                  onClick={() => setFilterStatus("in-progress")}
-                >
-                  In Progress
-                </Button>
-                <Button
-                  size="sm"
-                  variant={filterStatus === "completed" ? "default" : "outline"}
-                  onClick={() => setFilterStatus("completed")}
-                >
-                  Completed
-                </Button>
-              </div>
-
-              {/* Sort dropdown */}
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="recently-added">Recently Added</SelectItem>
-                  <SelectItem value="title-az">Title A-Z</SelectItem>
-                  <SelectItem value="author-az">Author A-Z</SelectItem>
-                  <SelectItem value="recently-played">Recently Played</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as FilterStatus)}>
+              <SelectTrigger className="w-[160px] h-10">
+                <SelectValue placeholder="Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Show All</SelectItem>
+                <SelectItem value="in-progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="w-[180px] h-10">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recently-added">Recently Added</SelectItem>
+                <SelectItem value="title-az">Title A-Z</SelectItem>
+                <SelectItem value="author-az">Author A-Z</SelectItem>
+                <SelectItem value="recently-played">Recently Played</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )}

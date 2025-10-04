@@ -10,11 +10,11 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth/auth-context";
 
 const schema = z.object({
   username: z.string().min(1, "Username is required"),
-  password: z.string().min(6, "Minimum 6 characters"),
-  rememberMe: z.boolean().optional()
+  password: z.string().min(1, "Password is required")
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -30,17 +30,18 @@ export default function LoginPage() {
     formState: { errors, isSubmitting }
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { username: "", password: "", rememberMe: false }
+    defaultValues: { username: "", password: "" }
   });
+
+  const { login } = useAuth();
 
   const onSubmit = async (values: FormValues) => {
     try {
       setFormError(null);
-      // TODO: integrate with backend authentication API
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await login(values.username, values.password);
       router.push(searchParams.get("redirectTo") ?? "/home");
     } catch (error) {
-      setFormError((error as Error)?.message ?? "Unable to sign in");
+      setFormError((error as Error)?.message ?? "Invalid credentials");
     }
   };
 
@@ -56,7 +57,7 @@ export default function LoginPage() {
           <label htmlFor="username" className="text-sm font-medium text-foreground">
             Username
           </label>
-          <Input id="username" autoComplete="username" placeholder="alex.mercer" {...register("username")} />
+          <Input id="username" autoComplete="username" placeholder="Username" {...register("username")} />
           {errors.username ? <p className="text-xs text-destructive">{errors.username.message}</p> : null}
         </div>
         <div className="space-y-2">
@@ -65,19 +66,6 @@ export default function LoginPage() {
           </label>
           <Input id="password" type="password" autoComplete="current-password" placeholder="••••••••" {...register("password")} />
           {errors.password ? <p className="text-xs text-destructive">{errors.password.message}</p> : null}
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <label className="inline-flex items-center gap-2 text-muted-foreground">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-border/60 bg-background text-primary focus:ring-primary"
-              {...register("rememberMe")}
-            />
-            Remember me
-          </label>
-          <Link href="/forgot-password" className="text-primary hover:text-primary/80">
-            Forgot password?
-          </Link>
         </div>
         {formError ? <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
         <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -91,7 +79,7 @@ export default function LoginPage() {
         </Button>
       </form>
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        New here? <Link href="/register" className="text-primary hover:text-primary/80">Create an account</Link>
+        Need an account? Contact your administrator.
       </p>
     </div>
   );

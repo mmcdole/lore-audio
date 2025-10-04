@@ -3,7 +3,6 @@ package audiobooks
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"mime"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/flix-audio/backend/internal/library"
 	"github.com/flix-audio/backend/internal/metadata"
 	"github.com/flix-audio/backend/internal/models"
+	"github.com/flix-audio/backend/internal/providers"
 	"github.com/flix-audio/backend/internal/repository"
 )
 
@@ -148,40 +148,110 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.DeleteAudiobook(ctx, id)
 }
 
-// SearchMetadata proxies metadata search to the configured provider.
-func (s *Service) SearchMetadata(ctx context.Context, query string) ([]models.BookMetadata, error) {
-	results, err := s.metadataProv.Search(ctx, query)
-	if errors.Is(err, metadata.ErrNotImplemented) {
-		return nil, metadata.ErrNotImplemented
+// SearchMetadata searches for audiobook metadata using external providers
+func (s *Service) SearchMetadata(ctx context.Context, providerName, title, author string) ([]providers.SearchResult, error) {
+	provider := s.getProvider(providerName)
+	if provider == nil {
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
 	}
-	return results, err
+
+	return provider.Search(ctx, title, author)
 }
 
-// LinkMetadata associates an audiobook with metadata (admin only).
-func (s *Service) LinkMetadata(ctx context.Context, audiobookID, metadataID string) (*models.Audiobook, error) {
-	meta, err := s.metadataProv.Fetch(ctx, metadataID)
+// LinkMetadata links an audiobook to external metadata by fetching and saving it
+func (s *Service) LinkMetadata(ctx context.Context, audiobookID, providerName, externalID string) error {
+	provider := s.getProvider(providerName)
+	if provider == nil {
+		return fmt.Errorf("unknown provider: %s", providerName)
+	}
+
+	// Fetch metadata from provider
+	result, err := provider.GetByID(ctx, externalID)
 	if err != nil {
-		if errors.Is(err, metadata.ErrNotImplemented) {
-			existing, fetchErr := s.repo.GetMetadata(ctx, metadataID)
-			if fetchErr != nil {
-				return nil, fetchErr
-			}
-			meta = existing
-		} else {
-			return nil, err
+		return fmt.Errorf("failed to fetch metadata: %w", err)
+	}
+
+	// Convert SearchResult to AgentMetadata
+	agentMetadata := s.convertSearchResultToAgentMetadata(result)
+
+	// Save or update the agent metadata
+	if err := s.repo.UpsertAgentMetadata(ctx, agentMetadata); err != nil {
+		return fmt.Errorf("failed to save agent metadata: %w", err)
+	}
+
+	// Link the audiobook to this metadata
+	if err := s.repo.LinkAudiobookMetadata(ctx, audiobookID, agentMetadata.ID); err != nil {
+		return fmt.Errorf("failed to link metadata: %w", err)
+	}
+
+	return nil
+}
+
+// getProvider returns the appropriate metadata provider based on name
+func (s *Service) getProvider(name string) providers.Provider {
+	switch name {
+	case "audible":
+		return providers.NewAudibleProvider("us", nil)
+	case "google":
+		return providers.NewGoogleBooksProvider(nil)
+	default:
+		return nil
+	}
+}
+
+// convertSearchResultToAgentMetadata converts a provider SearchResult to AgentMetadata
+func (s *Service) convertSearchResultToAgentMetadata(result *providers.SearchResult) *models.AgentMetadata {
+	// Generate ID from provider and external_id
+	metadataID := fmt.Sprintf("%s:%s", result.Provider, result.ExternalID)
+
+	now := time.Now().UTC()
+
+	// Build series info from series name and sequence as JSON
+	var seriesInfo *string
+	if result.SeriesName != nil {
+		seriesData := map[string]string{
+			"name": *result.SeriesName,
+		}
+		if result.SeriesSequence != nil {
+			seriesData["sequence"] = *result.SeriesSequence
+		}
+		if data, err := json.Marshal(seriesData); err == nil {
+			str := string(data)
+			seriesInfo = &str
 		}
 	}
 
-	if meta != nil {
-		if err := s.repo.UpsertMetadata(ctx, meta); err != nil {
-			return nil, err
+	// Convert genres slice to JSON string
+	var genresJSON *string
+	if len(result.Genres) > 0 {
+		if data, err := json.Marshal(result.Genres); err == nil {
+			str := string(data)
+			genresJSON = &str
 		}
 	}
 
-	if err := s.repo.LinkAudiobookMetadata(ctx, audiobookID, metadataID); err != nil {
-		return nil, err
+	return &models.AgentMetadata{
+		ID:          metadataID,
+		Title:       result.Title,
+		Subtitle:    result.Subtitle,
+		Author:      result.Author,
+		Narrator:    result.Narrator,
+		Description: result.Description,
+		CoverURL:    result.CoverURL,
+		SeriesInfo:  seriesInfo,
+		ReleaseDate: result.PublishedYear,
+		ISBN:        result.ISBN,
+		ASIN:        result.ASIN,
+		Language:    result.Language,
+		Publisher:   result.Publisher,
+		DurationSec: result.DurationMin,
+		Rating:      result.Rating,
+		Genres:      genresJSON,
+		Source:      result.Provider,
+		ExternalID:  &result.ExternalID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
-	return s.repo.GetAudiobook(ctx, audiobookID, "")
 }
 
 // UnlinkMetadata clears the metadata association (admin only).
@@ -271,13 +341,13 @@ func (s *Service) MediaFileStream(ctx context.Context, fileID string, userID str
 	return resolvedFull, media.MimeType, nil
 }
 
-// ListLibraryBooks returns all audiobooks in the specified library with pagination and user library status.
+// ListLibraryBooks returns all audiobooks in the specified library with pagination and user data attached.
 func (s *Service) ListLibraryBooks(ctx context.Context, userID, libraryID string, offset, limit int) ([]models.Audiobook, int, error) {
 	trimmed := strings.TrimSpace(libraryID)
 	if trimmed == "" {
 		return nil, 0, fmt.Errorf("library_id is required")
 	}
-	return s.repo.ListCatalogAudiobooks(ctx, userID, &trimmed, offset, limit)
+	return s.repo.ListAudiobooks(ctx, userID, &trimmed, offset, limit)
 }
 
 // SearchLibraryBooks searches a single library for audiobooks by title, author, or narrator.
@@ -286,7 +356,7 @@ func (s *Service) SearchLibraryBooks(ctx context.Context, userID, libraryID, que
 	if trimmed == "" {
 		return nil, 0, fmt.Errorf("library_id is required")
 	}
-	return s.repo.SearchCatalogAudiobooks(ctx, userID, query, &trimmed, offset, limit)
+	return s.repo.SearchAudiobooks(ctx, userID, query, &trimmed, offset, limit)
 }
 
 // extractAudioDuration uses ffprobe to get the duration of an audio file in seconds.
@@ -354,7 +424,7 @@ func (s *Service) ListUserLibrary(ctx context.Context, userID, libraryID string,
 	if trimmed := strings.TrimSpace(libraryID); trimmed != "" {
 		libraryRef = &trimmed
 	}
-	return s.repo.ListUserLibraryAudiobooks(ctx, userID, libraryRef, offset, limit)
+	return s.repo.ListAudiobooks(ctx, userID, libraryRef, offset, limit)
 }
 
 // GetLibraryItem returns a single audiobook from the user's library.
@@ -517,3 +587,27 @@ func (s *Service) GetContinueListening(ctx context.Context, userID string, libra
 	return s.repo.GetContinueListening(ctx, userID, libraryID, limit)
 }
 
+
+// =============================================================================
+// Metadata Overrides Management
+// =============================================================================
+
+// SaveMetadataOverrides saves manual metadata overrides for an audiobook
+func (s *Service) SaveMetadataOverrides(ctx context.Context, overrides *models.MetadataOverrides) error {
+	return s.repo.SaveMetadataOverrides(ctx, overrides)
+}
+
+// GetMetadataOverrides retrieves metadata overrides for an audiobook
+func (s *Service) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.MetadataOverrides, error) {
+	return s.repo.GetMetadataOverrides(ctx, audiobookID)
+}
+
+// DeleteMetadataOverrides removes all manual overrides for an audiobook
+func (s *Service) DeleteMetadataOverrides(ctx context.Context, audiobookID string) error {
+	return s.repo.DeleteMetadataOverrides(ctx, audiobookID)
+}
+
+// GetEmbeddedMetadata retrieves embedded metadata for an audiobook
+func (s *Service) GetEmbeddedMetadata(ctx context.Context, audiobookID string) (*models.EmbeddedMetadata, error) {
+	return s.repo.GetEmbeddedMetadata(ctx, audiobookID)
+}

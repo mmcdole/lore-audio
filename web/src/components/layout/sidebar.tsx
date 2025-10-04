@@ -9,10 +9,14 @@ import {
   Library,
   ListMusic,
   Settings,
-  UserCog,
+  ArrowLeft,
+  BookOpen,
+  Download,
+  Link as LinkIcon,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { LibrarySelector } from "./library-selector";
 
 interface SidebarLink {
   name: string;
@@ -24,17 +28,23 @@ interface SidebarLink {
 const PRIMARY_LINKS: SidebarLink[] = [
   { name: "Home", href: "/home", icon: Home },
   { name: "Favorites", href: "/favorites", icon: Heart },
-  { name: "Library", href: "/library", icon: Library },
+  { name: "Browse", href: "/library", icon: Library },
 ];
 
 const SECONDARY_LINKS: SidebarLink[] = [
   { name: "Statistics", href: "/stats", icon: ListMusic },
   { name: "Settings", href: "/settings", icon: Settings },
-  { name: "Admin", href: "/admin", icon: UserCog },
+];
+
+const SETTINGS_LINKS: SidebarLink[] = [
+  { name: "Libraries", href: "/settings/libraries", icon: BookOpen },
+  { name: "Import", href: "/settings/import", icon: Download },
+  { name: "Metadata", href: "/settings/metadata", icon: LinkIcon },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const isSettingsPage = pathname?.startsWith("/settings");
 
   const renderLink = ({ href, name, icon: Icon, badge }: SidebarLink) => {
     const isActive = pathname === href || pathname?.startsWith(`${href}/`);
@@ -74,10 +84,36 @@ export function Sidebar() {
           </h2>
         </div>
       </div>
-      <nav className="flex flex-col gap-6">
-        <div className="space-y-1">{PRIMARY_LINKS.map(renderLink)}</div>
-        <div className="space-y-1">{SECONDARY_LINKS.map(renderLink)}</div>
-      </nav>
+
+      {isSettingsPage ? (
+        /* Settings Navigation */
+        <nav className="flex flex-col gap-6 px-1">
+          <Link
+            href="/home"
+            className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Library
+          </Link>
+          <div className="space-y-1">
+            <p className="px-3 text-xs uppercase tracking-wide text-muted-foreground mb-2">
+              Settings
+            </p>
+            {SETTINGS_LINKS.map(renderLink)}
+          </div>
+        </nav>
+      ) : (
+        /* Main Navigation */
+        <>
+          <div className="mb-6">
+            <LibrarySelector />
+          </div>
+          <nav className="flex flex-col gap-6 px-1">
+            <div className="space-y-1">{PRIMARY_LINKS.map(renderLink)}</div>
+            <div className="space-y-1">{SECONDARY_LINKS.map(renderLink)}</div>
+          </nav>
+        </>
+      )}
     </aside>
   );
 }

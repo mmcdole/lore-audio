@@ -36,13 +36,12 @@ export function LibrarySelector() {
   const displayName = selectedLibrary?.display_name ?? "All Libraries";
 
   return (
-    <div className="flex items-center gap-2">
-      <Library className="h-4 w-4 text-muted-foreground" />
+    <div className="border-b border-border/40 pb-4">
       <Select
         value={selectedLibraryId ?? "all"}
         onValueChange={(value) => setSelectedLibraryId(value === "all" ? null : value)}
       >
-        <SelectTrigger className="h-8 w-[180px] border-0 bg-transparent px-2 text-sm font-medium hover:bg-accent">
+        <SelectTrigger className="mx-1 h-9 rounded-lg border-0 bg-transparent px-2 text-sm font-medium text-muted-foreground hover:bg-white/5 hover:text-foreground focus:ring-0 focus:ring-offset-0 [&>svg]:h-4 [&>svg]:w-4">
           <SelectValue>{displayName}</SelectValue>
         </SelectTrigger>
         <SelectContent>
