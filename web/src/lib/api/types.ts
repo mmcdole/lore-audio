@@ -51,6 +51,9 @@ export interface Audiobook {
   created_at: string;
   updated_at: string;
   metadata?: BookMetadata | null;
+  agent_metadata?: BookMetadata | null;
+  embedded_metadata?: EmbeddedMetadata | null;
+  custom_metadata?: CustomMetadata | null;
   user_data?: UserAudiobookData | null;
   file_count?: number;
   total_duration_sec?: number;
@@ -70,8 +73,38 @@ export interface BookMetadata {
   narrator?: string | null;
   description?: string | null;
   cover_url?: string | null;
-  series_info?: string | null;
+  series_name?: string | null;
+  series_sequence?: string | null;
   release_date?: string | null;
+  source?: string;
+  external_id?: string | null;
+}
+
+export interface EmbeddedMetadata {
+  audiobook_id: string;
+  title?: string | null;
+  subtitle?: string | null;
+  author?: string | null;
+  narrator?: string | null;
+  album?: string | null;
+  genre?: string | null;
+  year?: string | null;
+  track_number?: string | null;
+  comment?: string | null;
+  cover_mime_type?: string | null;
+  extracted_at: string;
+}
+
+export interface FieldOverride {
+  value?: string | null;
+  locked: boolean;
+}
+
+export interface CustomMetadata {
+  audiobook_id: string;
+  overrides: Record<string, FieldOverride>;
+  updated_at: string;
+  updated_by?: string | null;
 }
 
 export interface MediaFile {

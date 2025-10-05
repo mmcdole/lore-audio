@@ -23,6 +23,11 @@ type UpdateAudiobookMetadataRequest struct {
 
 // handleUpdateAudiobookMetadata saves manual metadata overrides for an audiobook
 // PATCH /api/v1/admin/audiobooks/:id/metadata
+//
+// Lock Semantics (lock-to-value):
+// - locked=true: MUST have a value (snapshots current value to custom)
+// - locked=false: Deletes the override (reverts to cascade)
+// - Invalid: {value: X, locked: false} - custom values are always locked
 func (h *handler) handleUpdateAudiobookMetadata(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "id")
 	if audiobookID == "" {
@@ -44,29 +49,56 @@ func (h *handler) handleUpdateAudiobookMetadata(w http.ResponseWriter, r *http.R
 	}
 	userID := user.ID
 
-	// Create metadata overrides
-	overrides := &models.MetadataOverrides{
+	// Validate lock semantics: locked fields must have values
+	validatedOverrides := make(map[string]models.FieldOverride)
+	for field, override := range req.Overrides {
+		if override.Locked {
+			// Locked must have a value (lock-to-value semantics)
+			if override.Value == nil || *override.Value == "" {
+				http.Error(w, fmt.Sprintf("field '%s' is locked but has no value - invalid state", field), http.StatusBadRequest)
+				return
+			}
+			validatedOverrides[field] = override
+		} else {
+			// Unlocked with value is invalid (custom values are always locked)
+			if override.Value != nil && *override.Value != "" {
+				http.Error(w, fmt.Sprintf("field '%s' has value but is not locked - invalid state", field), http.StatusBadRequest)
+				return
+			}
+			// Unlocked with no value means delete this override (handled by omitting from map)
+			// Don't add to validatedOverrides - this effectively deletes the field
+		}
+	}
+
+	// Create custom metadata with validated data
+	custom := &models.CustomMetadata{
 		AudiobookID: audiobookID,
-		Overrides:   req.Overrides,
+		Overrides:   validatedOverrides,
 		UpdatedAt:   time.Now().UTC(),
 		UpdatedBy:   &userID,
 	}
 
-	// Save overrides
-	if err := h.svc.SaveMetadataOverrides(r.Context(), overrides); err != nil {
-		http.Error(w, "failed to save metadata overrides", http.StatusInternalServerError)
-		return
+	// If no overrides remain, delete the entire custom metadata record
+	if len(validatedOverrides) == 0 {
+		if err := h.svc.DeleteMetadataOverrides(r.Context(), audiobookID); err != nil {
+			http.Error(w, "failed to delete custom metadata", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Save custom metadata
+		if err := h.svc.SaveMetadataOverrides(r.Context(), custom); err != nil {
+			http.Error(w, "failed to save custom metadata", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Return updated audiobook with all metadata layers
+	// GetLibraryItem already loads CustomMetadata via GetAudiobook
 	audiobook, err := h.svc.GetLibraryItem(r.Context(), audiobookID, userID)
 	if err != nil {
 		http.Error(w, "failed to get audiobook", http.StatusInternalServerError)
 		return
 	}
-
-	// Load metadata overrides
-	audiobook.MetadataOverrides, _ = h.svc.GetMetadataOverrides(r.Context(), audiobookID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(audiobook)
@@ -110,9 +142,9 @@ func (h *handler) handleExtractEmbeddedMetadata(w http.ResponseWriter, r *http.R
 
 // MetadataLayersResponse represents all metadata layers for debugging
 type MetadataLayersResponse struct {
-	AgentMetadata     *models.AgentMetadata     `json:"agent_metadata,omitempty"`
-	EmbeddedMetadata  *models.EmbeddedMetadata  `json:"embedded_metadata,omitempty"`
-	MetadataOverrides *models.MetadataOverrides `json:"metadata_overrides,omitempty"`
+	AgentMetadata    *models.AgentMetadata    `json:"agent_metadata,omitempty"`
+	EmbeddedMetadata *models.EmbeddedMetadata `json:"embedded_metadata,omitempty"`
+	CustomMetadata   *models.CustomMetadata   `json:"custom_metadata,omitempty"`
 }
 
 // handleGetMetadataLayers returns all metadata layers separately for debugging
@@ -141,13 +173,13 @@ func (h *handler) handleGetMetadataLayers(w http.ResponseWriter, r *http.Request
 	// Get embedded metadata
 	embedded, _ := h.svc.GetEmbeddedMetadata(r.Context(), audiobookID)
 
-	// Get overrides
-	overrides, _ := h.svc.GetMetadataOverrides(r.Context(), audiobookID)
+	// Get custom metadata
+	custom, _ := h.svc.GetMetadataOverrides(r.Context(), audiobookID)
 
 	response := MetadataLayersResponse{
-		AgentMetadata:     audiobook.AgentMetadata, // Use raw agent metadata, not resolved
-		EmbeddedMetadata:  embedded,
-		MetadataOverrides: overrides,
+		AgentMetadata:    audiobook.AgentMetadata, // Use raw agent metadata, not resolved
+		EmbeddedMetadata: embedded,
+		CustomMetadata:   custom,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -189,19 +221,20 @@ type LinkMetadataRequest struct {
 	ExternalID string `json:"external_id"`
 	// Optional: full metadata to save if not fetching again
 	Metadata *struct {
-		Title         string  `json:"title"`
-		Subtitle      *string `json:"subtitle,omitempty"`
-		Author        string  `json:"author"`
-		Narrator      *string `json:"narrator,omitempty"`
-		Description   *string `json:"description,omitempty"`
-		CoverURL      *string `json:"cover_url,omitempty"`
-		Publisher     *string `json:"publisher,omitempty"`
-		PublishedYear *string `json:"published_year,omitempty"`
-		Language      *string `json:"language,omitempty"`
-		ISBN          *string `json:"isbn,omitempty"`
-		ASIN          *string `json:"asin,omitempty"`
-		SeriesInfo    *string `json:"series_info,omitempty"`
-		Genres        *string `json:"genres,omitempty"`
+		Title          string  `json:"title"`
+		Subtitle       *string `json:"subtitle,omitempty"`
+		Author         string  `json:"author"`
+		Narrator       *string `json:"narrator,omitempty"`
+		Description    *string `json:"description,omitempty"`
+		CoverURL       *string `json:"cover_url,omitempty"`
+		Publisher      *string `json:"publisher,omitempty"`
+		PublishedYear  *string `json:"published_year,omitempty"`
+		Language       *string `json:"language,omitempty"`
+		ISBN           *string `json:"isbn,omitempty"`
+		ASIN           *string `json:"asin,omitempty"`
+		SeriesName     *string `json:"series_name,omitempty"`
+		SeriesSequence *string `json:"series_sequence,omitempty"`
+		Genres         *string `json:"genres,omitempty"`
 	} `json:"metadata,omitempty"`
 }
 
@@ -233,3 +266,6 @@ func (h *handler) handleLinkMetadata(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// Note: Unmatch endpoint already exists at DELETE /api/v1/admin/audiobooks/{audiobook_id}/link
+// See handleAdminAudiobookUnlink in admin_handlers.go

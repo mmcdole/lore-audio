@@ -14,7 +14,7 @@ type Audiobook struct {
 	MediaFiles          []MediaFile         `json:"media_files,omitempty"`
 	AgentMetadata       *AgentMetadata      `json:"agent_metadata,omitempty"`
 	EmbeddedMetadata    *EmbeddedMetadata   `json:"embedded_metadata,omitempty"`
-	MetadataOverrides   *MetadataOverrides  `json:"metadata_overrides,omitempty"`
+	CustomMetadata      *CustomMetadata     `json:"custom_metadata,omitempty"`
 	UserData            *UserAudiobookData  `json:"user_data,omitempty"`
 	FileCount           int                 `json:"file_count,omitempty"`
 	TotalDurationSec    float64             `json:"total_duration_sec,omitempty"`
@@ -80,48 +80,52 @@ type FieldOverride struct {
 
 // AgentMetadata represents metadata from external providers (can be shared across audiobooks)
 type AgentMetadata struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Subtitle     *string   `json:"subtitle,omitempty"`
-	Author       string    `json:"author"`
-	Narrator     *string   `json:"narrator,omitempty"`
-	Description  *string   `json:"description,omitempty"`
-	CoverURL     *string   `json:"cover_url,omitempty"`
-	SeriesInfo   *string   `json:"series_info,omitempty"`
-	ReleaseDate  *string   `json:"release_date,omitempty"`
-	ISBN         *string   `json:"isbn,omitempty"`
-	ASIN         *string   `json:"asin,omitempty"`
-	Language     *string   `json:"language,omitempty"`
-	Publisher    *string   `json:"publisher,omitempty"`
-	DurationSec  *float64  `json:"duration_sec,omitempty"`
-	Rating       *float64  `json:"rating,omitempty"`
-	RatingCount  *int      `json:"rating_count,omitempty"`
-	Genres       *string   `json:"genres,omitempty"` // JSON array
-	Source       string    `json:"source"`
-	ExternalID   *string   `json:"external_id,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Subtitle       *string   `json:"subtitle,omitempty"`
+	Author         string    `json:"author"`
+	Narrator       *string   `json:"narrator,omitempty"`
+	Description    *string   `json:"description,omitempty"`
+	CoverURL       *string   `json:"cover_url,omitempty"`
+	SeriesName     *string   `json:"series_name,omitempty"`
+	SeriesSequence *string   `json:"series_sequence,omitempty"`
+	ReleaseDate    *string   `json:"release_date,omitempty"`
+	ISBN           *string   `json:"isbn,omitempty"`
+	ASIN           *string   `json:"asin,omitempty"`
+	Language       *string   `json:"language,omitempty"`
+	Publisher      *string   `json:"publisher,omitempty"`
+	DurationSec    *float64  `json:"duration_sec,omitempty"`
+	Rating         *float64  `json:"rating,omitempty"`
+	RatingCount    *int      `json:"rating_count,omitempty"`
+	Genres         *string   `json:"genres,omitempty"` // JSON array
+	Source         string    `json:"source"`
+	ExternalID     *string   `json:"external_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // EmbeddedMetadata represents metadata extracted from file tags (1:1 with audiobook)
 type EmbeddedMetadata struct {
-	AudiobookID   string    `json:"audiobook_id"`
-	Title         *string   `json:"title,omitempty"`
-	Subtitle      *string   `json:"subtitle,omitempty"`
-	Author        *string   `json:"author,omitempty"`
-	Narrator      *string   `json:"narrator,omitempty"`
-	Album         *string   `json:"album,omitempty"`
-	Genre         *string   `json:"genre,omitempty"`
-	Year          *string   `json:"year,omitempty"`
-	TrackNumber   *string   `json:"track_number,omitempty"`
-	Comment       *string   `json:"comment,omitempty"`
-	EmbeddedCover []byte    `json:"-"` // Not serialized in JSON
-	CoverMimeType *string   `json:"cover_mime_type,omitempty"`
-	ExtractedAt   time.Time `json:"extracted_at"`
+	AudiobookID    string    `json:"audiobook_id"`
+	Title          *string   `json:"title,omitempty"`
+	Subtitle       *string   `json:"subtitle,omitempty"`
+	Author         *string   `json:"author,omitempty"`
+	Narrator       *string   `json:"narrator,omitempty"`
+	Album          *string   `json:"album,omitempty"`
+	Genre          *string   `json:"genre,omitempty"`
+	Year           *string   `json:"year,omitempty"`
+	TrackNumber    *string   `json:"track_number,omitempty"`
+	Comment        *string   `json:"comment,omitempty"`
+	SeriesName     *string   `json:"series_name,omitempty"`
+	SeriesSequence *string   `json:"series_sequence,omitempty"`
+	EmbeddedCover  []byte    `json:"-"` // Not serialized in JSON
+	CoverMimeType  *string   `json:"cover_mime_type,omitempty"`
+	ExtractedAt    time.Time `json:"extracted_at"`
 }
 
-// MetadataOverrides represents user manual edits (1:1 with audiobook)
-type MetadataOverrides struct {
+// CustomMetadata represents user manual edits (1:1 with audiobook)
+// Stored in audiobook_metadata_overrides table (will be renamed to audiobook_metadata_custom in Phase 3)
+type CustomMetadata struct {
 	AudiobookID string                   `json:"audiobook_id"`
 	Overrides   map[string]FieldOverride `json:"overrides"` // Field name -> override + lock
 	UpdatedAt   time.Time                `json:"updated_at"`
@@ -227,8 +231,13 @@ type FilterCounts struct {
 }
 
 // ResolveMetadata computes the final display metadata by merging all layers.
-// Priority: Manual Overrides (tier 1) > Agent Metadata (tier 2) > Embedded Metadata (tier 3)
-// Locked fields prevent agent/embedded metadata from being applied.
+//
+// Lock-to-Value Semantics:
+// - Locked fields use their custom/override value (frozen snapshot)
+// - Unlocked fields use priority cascade: Agent → Embedded → (future: Parsed)
+// - Locked fields MUST have a value (enforced by handler validation)
+//
+// Priority: Custom/Override (tier 1) > Agent (tier 2) > Embedded (tier 3)
 func (a *Audiobook) ResolveMetadata() *AgentMetadata {
 	if a == nil {
 		return nil
@@ -246,6 +255,7 @@ func (a *Audiobook) ResolveMetadata() *AgentMetadata {
 	// }
 
 	// Tier 2: Agent metadata (middle priority, only if field not locked)
+	// Locked fields are skipped here and use their custom value from Tier 1
 	if a.Metadata != nil {
 		if !a.isFieldLocked("title") {
 			resolved.Title = a.Metadata.Title
@@ -265,8 +275,11 @@ func (a *Audiobook) ResolveMetadata() *AgentMetadata {
 		if !a.isFieldLocked("cover_url") {
 			resolved.CoverURL = a.Metadata.CoverURL
 		}
-		if !a.isFieldLocked("series_info") {
-			resolved.SeriesInfo = a.Metadata.SeriesInfo
+		if !a.isFieldLocked("series_name") {
+			resolved.SeriesName = a.Metadata.SeriesName
+		}
+		if !a.isFieldLocked("series_sequence") {
+			resolved.SeriesSequence = a.Metadata.SeriesSequence
 		}
 		if !a.isFieldLocked("release_date") {
 			resolved.ReleaseDate = a.Metadata.ReleaseDate
@@ -303,50 +316,54 @@ func (a *Audiobook) ResolveMetadata() *AgentMetadata {
 		resolved.UpdatedAt = a.Metadata.UpdatedAt
 	}
 
-	// Tier 1: Manual overrides (highest priority, always wins)
-	if a.MetadataOverrides != nil {
-		if override, ok := a.MetadataOverrides.Overrides["title"]; ok && override.Value != nil {
+	// Tier 1: Custom/locked values (highest priority, always wins)
+	// Lock-to-value: locked fields always have a value (enforced by handler)
+	if a.CustomMetadata != nil {
+		if override, ok := a.CustomMetadata.Overrides["title"]; ok && override.Locked && override.Value != nil {
 			resolved.Title = *override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["subtitle"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["subtitle"]; ok && override.Locked && override.Value != nil {
 			resolved.Subtitle = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["author"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["author"]; ok && override.Locked && override.Value != nil {
 			resolved.Author = *override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["narrator"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["narrator"]; ok && override.Locked && override.Value != nil {
 			resolved.Narrator = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["description"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["description"]; ok && override.Locked && override.Value != nil {
 			resolved.Description = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["cover_url"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["cover_url"]; ok && override.Locked && override.Value != nil {
 			resolved.CoverURL = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["series_info"]; ok && override.Value != nil {
-			resolved.SeriesInfo = override.Value
+		if override, ok := a.CustomMetadata.Overrides["series_name"]; ok && override.Locked && override.Value != nil {
+			resolved.SeriesName = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["release_date"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["series_sequence"]; ok && override.Locked && override.Value != nil {
+			resolved.SeriesSequence = override.Value
+		}
+		if override, ok := a.CustomMetadata.Overrides["release_date"]; ok && override.Locked && override.Value != nil {
 			resolved.ReleaseDate = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["isbn"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["isbn"]; ok && override.Locked && override.Value != nil {
 			resolved.ISBN = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["asin"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["asin"]; ok && override.Locked && override.Value != nil {
 			resolved.ASIN = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["language"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["language"]; ok && override.Locked && override.Value != nil {
 			resolved.Language = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["publisher"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["publisher"]; ok && override.Locked && override.Value != nil {
 			resolved.Publisher = override.Value
 		}
-		if override, ok := a.MetadataOverrides.Overrides["duration_sec"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["duration_sec"]; ok && override.Locked && override.Value != nil {
 			// Parse string to float64 for duration_sec
 			// Note: Value is *string, so we'd need conversion logic here
 			// For now, skip complex type conversions
 		}
-		if override, ok := a.MetadataOverrides.Overrides["genres"]; ok && override.Value != nil {
+		if override, ok := a.CustomMetadata.Overrides["genres"]; ok && override.Locked && override.Value != nil {
 			resolved.Genres = override.Value
 		}
 	}
@@ -355,12 +372,11 @@ func (a *Audiobook) ResolveMetadata() *AgentMetadata {
 }
 
 // isFieldLocked checks if a specific metadata field is locked.
-// A field is locked if it exists in MetadataOverrides with locked=true.
-// Locked fields prevent agent/embedded metadata from overwriting the current value.
+// Lock-to-value semantics: A locked field has a frozen custom value that won't update.
 func (a *Audiobook) isFieldLocked(fieldName string) bool {
-	if a.MetadataOverrides == nil {
+	if a.CustomMetadata == nil {
 		return false
 	}
-	override, ok := a.MetadataOverrides.Overrides[fieldName]
+	override, ok := a.CustomMetadata.Overrides[fieldName]
 	return ok && override.Locked
 }

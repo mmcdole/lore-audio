@@ -25,7 +25,8 @@ CREATE TABLE audiobook_metadata_agent (
     narrator TEXT NULL,
     description TEXT NULL,
     cover_url TEXT NULL,
-    series_info TEXT NULL,
+    series_name TEXT NULL,
+    series_sequence TEXT NULL,
     -- ... additional fields
     source TEXT NOT NULL,           -- 'audible', 'google', etc.
     external_id TEXT NULL

@@ -53,25 +53,13 @@ export default function LibraryPage() {
     const groups = new Map<string, { name: string; books: typeof books }>();
 
     books.forEach((book) => {
-      const seriesInfo = book.metadata?.series_info;
-      if (seriesInfo) {
-        try {
-          const parsed = typeof seriesInfo === 'string' ? JSON.parse(seriesInfo) : seriesInfo;
-          const seriesName = parsed.name || 'Unknown Series';
-          const existing = groups.get(seriesName);
-          if (existing) {
-            existing.books.push(book);
-          } else {
-            groups.set(seriesName, { name: seriesName, books: [book] });
-          }
-        } catch (e) {
-          // If parsing fails, use the raw string
-          const existing = groups.get(seriesInfo);
-          if (existing) {
-            existing.books.push(book);
-          } else {
-            groups.set(seriesInfo, { name: seriesInfo, books: [book] });
-          }
+      const seriesName = book.metadata?.series_name;
+      if (seriesName) {
+        const existing = groups.get(seriesName);
+        if (existing) {
+          existing.books.push(book);
+        } else {
+          groups.set(seriesName, { name: seriesName, books: [book] });
         }
       }
     });

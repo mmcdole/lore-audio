@@ -206,21 +206,6 @@ func (s *Service) convertSearchResultToAgentMetadata(result *providers.SearchRes
 
 	now := time.Now().UTC()
 
-	// Build series info from series name and sequence as JSON
-	var seriesInfo *string
-	if result.SeriesName != nil {
-		seriesData := map[string]string{
-			"name": *result.SeriesName,
-		}
-		if result.SeriesSequence != nil {
-			seriesData["sequence"] = *result.SeriesSequence
-		}
-		if data, err := json.Marshal(seriesData); err == nil {
-			str := string(data)
-			seriesInfo = &str
-		}
-	}
-
 	// Convert genres slice to JSON string
 	var genresJSON *string
 	if len(result.Genres) > 0 {
@@ -231,22 +216,23 @@ func (s *Service) convertSearchResultToAgentMetadata(result *providers.SearchRes
 	}
 
 	return &models.AgentMetadata{
-		ID:          metadataID,
-		Title:       result.Title,
-		Subtitle:    result.Subtitle,
-		Author:      result.Author,
-		Narrator:    result.Narrator,
-		Description: result.Description,
-		CoverURL:    result.CoverURL,
-		SeriesInfo:  seriesInfo,
-		ReleaseDate: result.PublishedYear,
-		ISBN:        result.ISBN,
-		ASIN:        result.ASIN,
-		Language:    result.Language,
-		Publisher:   result.Publisher,
-		DurationSec: result.DurationMin,
-		Rating:      result.Rating,
-		Genres:      genresJSON,
+		ID:             metadataID,
+		Title:          result.Title,
+		Subtitle:       result.Subtitle,
+		Author:         result.Author,
+		Narrator:       result.Narrator,
+		Description:    result.Description,
+		CoverURL:       result.CoverURL,
+		SeriesName:     result.SeriesName,
+		SeriesSequence: result.SeriesSequence,
+		ReleaseDate:    result.PublishedYear,
+		ISBN:           result.ISBN,
+		ASIN:           result.ASIN,
+		Language:       result.Language,
+		Publisher:      result.Publisher,
+		DurationSec:    result.DurationMin,
+		Rating:         result.Rating,
+		Genres:         genresJSON,
 		Source:      result.Provider,
 		ExternalID:  &result.ExternalID,
 		CreatedAt:   now,
@@ -593,12 +579,12 @@ func (s *Service) GetContinueListening(ctx context.Context, userID string, libra
 // =============================================================================
 
 // SaveMetadataOverrides saves manual metadata overrides for an audiobook
-func (s *Service) SaveMetadataOverrides(ctx context.Context, overrides *models.MetadataOverrides) error {
-	return s.repo.SaveMetadataOverrides(ctx, overrides)
+func (s *Service) SaveMetadataOverrides(ctx context.Context, custom *models.CustomMetadata) error {
+	return s.repo.SaveMetadataOverrides(ctx, custom)
 }
 
 // GetMetadataOverrides retrieves metadata overrides for an audiobook
-func (s *Service) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.MetadataOverrides, error) {
+func (s *Service) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.CustomMetadata, error) {
 	return s.repo.GetMetadataOverrides(ctx, audiobookID)
 }
 

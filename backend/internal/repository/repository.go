@@ -84,7 +84,9 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 	row := r.db.QueryRowContext(ctx, `
         SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
                m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
-               m.cover_url, m.series_info, m.release_date,
+               m.cover_url, m.series_name, m.series_sequence, m.release_date, m.isbn, m.asin,
+               m.language, m.publisher, m.duration_sec, m.rating, m.rating_count,
+               m.genres, m.source, m.external_id, m.created_at, m.updated_at,
                o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
                u.user_id, u.progress_sec, u.is_favorite, u.last_played_at
         FROM audiobooks a
@@ -97,7 +99,12 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 	var ab models.Audiobook
 	var createdAt, updatedAt string
 	var metadata models.BookMetadata
-	var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+	var metaID, title, author sql.NullString
+	var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
+	var isbn, asin, language, publisher, genres, source, externalID sql.NullString
+	var durationSec, rating sql.NullFloat64
+	var ratingCount sql.NullInt64
+	var metaCreatedAt, metaUpdatedAt sql.NullString
 	var metadataID sql.NullString
 	var libraryID sql.NullString
 	var userIDVal, lastPlayedAt sql.NullString
@@ -111,8 +118,10 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 
 	err := row.Scan(
 		&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
-		&metadata.ID, &metadata.Title, &subtitle, &metadata.Author, &narrator, &description,
-		&coverURL, &seriesInfo, &releaseDate,
+		&metaID, &title, &subtitle, &author, &narrator, &description,
+		&coverURL, &seriesName, &seriesSequence, &releaseDate, &isbn, &asin,
+		&language, &publisher, &durationSec, &rating, &ratingCount,
+		&genres, &source, &externalID, &metaCreatedAt, &metaUpdatedAt,
 		&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
 		&userIDVal, &progress, &favorite, &lastPlayedAt,
 	)
@@ -128,40 +137,57 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 	ab.CreatedAt = parseTime(createdAt)
 	ab.UpdatedAt = parseTime(updatedAt)
 
-	if metadata.ID != "" {
+	if metaID.Valid && metaID.String != "" {
+		metadata.ID = metaID.String
+		metadata.Title = title.String
+		metadata.Author = author.String
 		metadata.Subtitle = nullableString(subtitle)
 		metadata.Narrator = nullableString(narrator)
 		metadata.Description = nullableString(description)
 		metadata.CoverURL = nullableString(coverURL)
-		metadata.SeriesInfo = nullableString(seriesInfo)
+		metadata.SeriesName = nullableString(seriesName)
+		metadata.SeriesSequence = nullableString(seriesSequence)
 		metadata.ReleaseDate = nullableString(releaseDate)
 
-		// Populate AgentMetadata layer (raw agent data)
+		// Populate AgentMetadata layer (raw agent data) with all fields
 		agentMeta := models.AgentMetadata{
-			ID:          metadata.ID,
-			Title:       metadata.Title,
-			Subtitle:    metadata.Subtitle,
-			Author:      metadata.Author,
-			Narrator:    metadata.Narrator,
-			Description: metadata.Description,
-			CoverURL:    metadata.CoverURL,
-			SeriesInfo:  metadata.SeriesInfo,
-			ReleaseDate: metadata.ReleaseDate,
+			ID:             metadata.ID,
+			Title:          metadata.Title,
+			Subtitle:       metadata.Subtitle,
+			Author:         metadata.Author,
+			Narrator:       metadata.Narrator,
+			Description:    metadata.Description,
+			CoverURL:       metadata.CoverURL,
+			SeriesName:     metadata.SeriesName,
+			SeriesSequence: metadata.SeriesSequence,
+			ReleaseDate:    metadata.ReleaseDate,
+			ISBN:        nullableString(isbn),
+			ASIN:        nullableString(asin),
+			Language:    nullableString(language),
+			Publisher:   nullableString(publisher),
+			DurationSec: nullableFloat64(durationSec),
+			Rating:      nullableFloat64(rating),
+			RatingCount: nullableInt64(ratingCount),
+			Genres:      nullableString(genres),
+			Source:      source.String, // Default to empty string if null
+			ExternalID:  nullableString(externalID),
+			CreatedAt:   parseTime(metaCreatedAt.String),
+			UpdatedAt:   parseTime(metaUpdatedAt.String),
 		}
 		ab.AgentMetadata = &agentMeta
 		ab.Metadata = &metadata // Temporary, will be replaced by ResolveMetadata()
 	}
 
-	// Parse metadata overrides if they exist
+	// Parse custom metadata (overrides) if they exist
 	if overrideAudiobookID.Valid && overridesJSON.Valid {
-		var overrides models.MetadataOverrides
-		overrides.AudiobookID = overrideAudiobookID.String
-		if err := json.Unmarshal([]byte(overridesJSON.String), &overrides.Overrides); err != nil {
+		var custom models.CustomMetadata
+		custom.AudiobookID = overrideAudiobookID.String
+		if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
 			return nil, fmt.Errorf("failed to parse overrides JSON: %w", err)
 		}
-		overrides.UpdatedAt = parseTime(overrideUpdatedAt.String)
-		overrides.UpdatedBy = nullableString(overrideUpdatedBy)
-		ab.MetadataOverrides = &overrides
+		custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
+		custom.UpdatedBy = nullableString(overrideUpdatedBy)
+		ab.CustomMetadata = &custom
 	}
 
 	if userIDVal.Valid {
@@ -230,8 +256,8 @@ func (r *Repository) GetMediaFileWithAudiobook(ctx context.Context, fileID strin
 // UpsertMetadata inserts or updates book metadata records.
 func (r *Repository) UpsertMetadata(ctx context.Context, meta *models.BookMetadata) error {
 	_, err := r.db.ExecContext(ctx, `
-        INSERT INTO audiobook_metadata_agent (id, title, subtitle, author, narrator, description, cover_url, series_info, release_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO audiobook_metadata_agent (id, title, subtitle, author, narrator, description, cover_url, series_name, series_sequence, release_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             subtitle = excluded.subtitle,
@@ -239,7 +265,8 @@ func (r *Repository) UpsertMetadata(ctx context.Context, meta *models.BookMetada
             narrator = excluded.narrator,
             description = excluded.description,
             cover_url = excluded.cover_url,
-            series_info = excluded.series_info,
+            series_name = excluded.series_name,
+            series_sequence = excluded.series_sequence,
             release_date = excluded.release_date
     `,
 		meta.ID,
@@ -249,7 +276,8 @@ func (r *Repository) UpsertMetadata(ctx context.Context, meta *models.BookMetada
 		nullable(meta.Narrator),
 		nullable(meta.Description),
 		nullable(meta.CoverURL),
-		nullable(meta.SeriesInfo),
+		nullable(meta.SeriesName),
+		nullable(meta.SeriesSequence),
 		nullable(meta.ReleaseDate),
 	)
 	return err
@@ -260,11 +288,11 @@ func (r *Repository) UpsertAgentMetadata(ctx context.Context, meta *models.Agent
 	_, err := r.db.ExecContext(ctx, `
         INSERT INTO audiobook_metadata_agent (
             id, title, subtitle, author, narrator, description, cover_url,
-            series_info, release_date, isbn, asin, language, publisher,
+            series_name, series_sequence, release_date, isbn, asin, language, publisher,
             duration_sec, rating, rating_count, genres, source, external_id,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             subtitle = excluded.subtitle,
@@ -272,7 +300,8 @@ func (r *Repository) UpsertAgentMetadata(ctx context.Context, meta *models.Agent
             narrator = excluded.narrator,
             description = excluded.description,
             cover_url = excluded.cover_url,
-            series_info = excluded.series_info,
+            series_name = excluded.series_name,
+            series_sequence = excluded.series_sequence,
             release_date = excluded.release_date,
             isbn = excluded.isbn,
             asin = excluded.asin,
@@ -293,7 +322,8 @@ func (r *Repository) UpsertAgentMetadata(ctx context.Context, meta *models.Agent
 		nullable(meta.Narrator),
 		nullable(meta.Description),
 		nullable(meta.CoverURL),
-		nullable(meta.SeriesInfo),
+		nullable(meta.SeriesName),
+		nullable(meta.SeriesSequence),
 		nullable(meta.ReleaseDate),
 		nullable(meta.ISBN),
 		nullable(meta.ASIN),
@@ -314,14 +344,14 @@ func (r *Repository) UpsertAgentMetadata(ctx context.Context, meta *models.Agent
 // GetMetadata retrieves a metadata entry by ID.
 func (r *Repository) GetMetadata(ctx context.Context, id string) (*models.BookMetadata, error) {
 	row := r.db.QueryRowContext(ctx, `
-        SELECT id, title, subtitle, author, narrator, description, cover_url, series_info, release_date
+        SELECT id, title, subtitle, author, narrator, description, cover_url, series_name, series_sequence, release_date
         FROM audiobook_metadata_agent
         WHERE id = ?
     `, id)
 
 	var meta models.BookMetadata
-	var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
-	if err := row.Scan(&meta.ID, &meta.Title, &subtitle, &meta.Author, &narrator, &description, &coverURL, &seriesInfo, &releaseDate); err != nil {
+	var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
+	if err := row.Scan(&meta.ID, &meta.Title, &subtitle, &meta.Author, &narrator, &description, &coverURL, &seriesName, &seriesSequence, &releaseDate); err != nil {
 		return nil, err
 	}
 
@@ -329,7 +359,8 @@ func (r *Repository) GetMetadata(ctx context.Context, id string) (*models.BookMe
 	meta.Narrator = nullableString(narrator)
 	meta.Description = nullableString(description)
 	meta.CoverURL = nullableString(coverURL)
-	meta.SeriesInfo = nullableString(seriesInfo)
+	meta.SeriesName = nullableString(seriesName)
+	meta.SeriesSequence = nullableString(seriesSequence)
 	meta.ReleaseDate = nullableString(releaseDate)
 	return &meta, nil
 }
@@ -449,6 +480,22 @@ func nullableString(ns sql.NullString) *string {
 	return nil
 }
 
+func nullableFloat64(nf sql.NullFloat64) *float64 {
+	if nf.Valid {
+		val := nf.Float64
+		return &val
+	}
+	return nil
+}
+
+func nullableInt64(ni sql.NullInt64) *int {
+	if ni.Valid {
+		val := int(ni.Int64)
+		return &val
+	}
+	return nil
+}
+
 func nullable(ptr *string) interface{} {
 	if ptr == nil {
 		return nil
@@ -519,7 +566,7 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 	query := `
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
-		       m.cover_url, m.series_info, m.release_date,
+		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
 		       o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
 		       u.user_id, u.progress_sec, u.is_favorite, u.last_played_at,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
@@ -558,7 +605,7 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 		var createdAt, updatedAt string
 		var metaRow models.BookMetadata
 		var metaID, title, author sql.NullString
-		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
 		var overrideAudiobookID sql.NullString
@@ -574,7 +621,7 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 		if err := rows.Scan(
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaID, &title, &subtitle, &author, &narrator, &description,
-			&coverURL, &seriesInfo, &releaseDate,
+			&coverURL, &seriesName, &seriesSequence, &releaseDate,
 			&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
 			&userIDVal, &progress, &favorite, &lastPlayedAt,
 			&fileCount, &totalDuration,
@@ -597,23 +644,24 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 			metaRow.Narrator = nullableString(narrator)
 			metaRow.Description = nullableString(description)
 			metaRow.CoverURL = nullableString(coverURL)
-			metaRow.SeriesInfo = nullableString(seriesInfo)
+			metaRow.SeriesName = nullableString(seriesName)
+			metaRow.SeriesSequence = nullableString(seriesSequence)
 			metaRow.ReleaseDate = nullableString(releaseDate)
 			if strings.TrimSpace(metaRow.Title) != "" {
 				ab.Metadata = &metaRow
 			}
 		}
 
-		// Parse metadata overrides if they exist
+		// Parse custom metadata if it exists
 		if overrideAudiobookID.Valid && overridesJSON.Valid {
-			var overrides models.MetadataOverrides
-			overrides.AudiobookID = overrideAudiobookID.String
-			if err := json.Unmarshal([]byte(overridesJSON.String), &overrides.Overrides); err != nil {
+			var custom models.CustomMetadata
+			custom.AudiobookID = overrideAudiobookID.String
+			if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
 				return nil, 0, fmt.Errorf("failed to parse overrides JSON: %w", err)
 			}
-			overrides.UpdatedAt = parseTime(overrideUpdatedAt.String)
-			overrides.UpdatedBy = nullableString(overrideUpdatedBy)
-			ab.MetadataOverrides = &overrides
+			custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
+			custom.UpdatedBy = nullableString(overrideUpdatedBy)
+			ab.CustomMetadata = &custom
 		}
 
 		// User data - only set if user has interacted with this book
@@ -720,7 +768,7 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 	searchQuery := `
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
-		       m.cover_url, m.series_info, m.release_date,
+		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
 		       o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
@@ -758,7 +806,7 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 		var ab models.Audiobook
 		var createdAt, updatedAt string
 		var metaRow models.BookMetadata
-		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metaID sql.NullString
 		var libraryID sql.NullString
 		var overrideAudiobookID sql.NullString
@@ -771,7 +819,7 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 		err := rows.Scan(
 			&ab.ID, &libraryID, &metaID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
-			&coverURL, &seriesInfo, &releaseDate,
+			&coverURL, &seriesName, &seriesSequence, &releaseDate,
 			&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
 			&fileCount, &totalDuration,
 		)
@@ -801,24 +849,27 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 			if coverURL.Valid {
 				ab.Metadata.CoverURL = &coverURL.String
 			}
-			if seriesInfo.Valid {
-				ab.Metadata.SeriesInfo = &seriesInfo.String
+			if seriesName.Valid {
+				ab.Metadata.SeriesName = &seriesName.String
+			}
+			if seriesSequence.Valid {
+				ab.Metadata.SeriesSequence = &seriesSequence.String
 			}
 			if releaseDate.Valid {
 				ab.Metadata.ReleaseDate = &releaseDate.String
 			}
 		}
 
-		// Parse metadata overrides if they exist
+		// Parse custom metadata if it exists
 		if overrideAudiobookID.Valid && overridesJSON.Valid {
-			var overrides models.MetadataOverrides
-			overrides.AudiobookID = overrideAudiobookID.String
-			if err := json.Unmarshal([]byte(overridesJSON.String), &overrides.Overrides); err != nil {
+			var custom models.CustomMetadata
+			custom.AudiobookID = overrideAudiobookID.String
+			if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
 				return nil, 0, fmt.Errorf("failed to parse overrides JSON: %w", err)
 			}
-			overrides.UpdatedAt = parseTime(overrideUpdatedAt.String)
-			overrides.UpdatedBy = nullableString(overrideUpdatedBy)
-			ab.MetadataOverrides = &overrides
+			custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
+			custom.UpdatedBy = nullableString(overrideUpdatedBy)
+			ab.CustomMetadata = &custom
 		}
 
 		// Apply metadata resolution to get final display values
@@ -1757,7 +1808,7 @@ func (r *Repository) GetContinueListening(ctx context.Context, userID string, li
 	query := `
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
-		       m.cover_url, m.series_info, m.release_date,
+		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
 		       u.progress_sec, u.is_favorite, u.last_played_at,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
@@ -1794,7 +1845,7 @@ func (r *Repository) GetContinueListening(ctx context.Context, userID string, li
 		var ab models.Audiobook
 		var createdAt, updatedAt string
 		var metaRow models.BookMetadata
-		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
 		var progress sql.NullFloat64
@@ -1806,7 +1857,7 @@ func (r *Repository) GetContinueListening(ctx context.Context, userID string, li
 		if err := rows.Scan(
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
-			&coverURL, &seriesInfo, &releaseDate,
+			&coverURL, &seriesName, &seriesSequence, &releaseDate,
 			&progress, &favorite, &lastPlayedAt,
 			&fileCount, &totalDuration,
 		); err != nil {
@@ -1826,7 +1877,8 @@ func (r *Repository) GetContinueListening(ctx context.Context, userID string, li
 			meta.Narrator = nullableString(narrator)
 			meta.Description = nullableString(description)
 			meta.CoverURL = nullableString(coverURL)
-			meta.SeriesInfo = nullableString(seriesInfo)
+			meta.SeriesName = nullableString(seriesName)
+			meta.SeriesSequence = nullableString(seriesSequence)
 			meta.ReleaseDate = nullableString(releaseDate)
 			if strings.TrimSpace(meta.Title) != "" {
 				ab.Metadata = &meta
@@ -1876,7 +1928,7 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 	query := `
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
-		       m.cover_url, m.series_info, m.release_date,
+		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
 		       u.progress_sec, u.is_favorite, u.last_played_at,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
@@ -1915,7 +1967,7 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 		var ab models.Audiobook
 		var createdAt, updatedAt string
 		var metaRow models.BookMetadata
-		var subtitle, narrator, description, coverURL, seriesInfo, releaseDate sql.NullString
+		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
 		var progress sql.NullFloat64
@@ -1927,7 +1979,7 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 		if err := rows.Scan(
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
-			&coverURL, &seriesInfo, &releaseDate,
+			&coverURL, &seriesName, &seriesSequence, &releaseDate,
 			&progress, &favorite, &lastPlayedAt,
 			&fileCount, &totalDuration,
 		); err != nil {
@@ -1947,7 +1999,8 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 			meta.Narrator = nullableString(narrator)
 			meta.Description = nullableString(description)
 			meta.CoverURL = nullableString(coverURL)
-			meta.SeriesInfo = nullableString(seriesInfo)
+			meta.SeriesName = nullableString(seriesName)
+			meta.SeriesSequence = nullableString(seriesSequence)
 			meta.ReleaseDate = nullableString(releaseDate)
 			if strings.TrimSpace(meta.Title) != "" {
 				ab.Metadata = &meta
@@ -1978,8 +2031,8 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 // =============================================================================
 
 // GetMetadataOverrides retrieves manual metadata overrides for an audiobook.
-func (r *Repository) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.MetadataOverrides, error) {
-	var overrides models.MetadataOverrides
+func (r *Repository) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.CustomMetadata, error) {
+	var custom models.CustomMetadata
 	var overridesJSON string
 	var updatedAt string
 	var updatedBy sql.NullString
@@ -1988,30 +2041,30 @@ func (r *Repository) GetMetadataOverrides(ctx context.Context, audiobookID strin
 		SELECT audiobook_id, overrides, updated_at, updated_by
 		FROM audiobook_metadata_overrides
 		WHERE audiobook_id = ?
-	`, audiobookID).Scan(&overrides.AudiobookID, &overridesJSON, &updatedAt, &updatedBy)
+	`, audiobookID).Scan(&custom.AudiobookID, &overridesJSON, &updatedAt, &updatedBy)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil // No overrides exist
+		return nil, nil // No custom metadata exists
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse JSON overrides
-	if err := json.Unmarshal([]byte(overridesJSON), &overrides.Overrides); err != nil {
+	if err := json.Unmarshal([]byte(overridesJSON), &custom.Overrides); err != nil {
 		return nil, fmt.Errorf("failed to parse overrides JSON: %w", err)
 	}
 
-	overrides.UpdatedAt = parseTime(updatedAt)
-	overrides.UpdatedBy = nullableString(updatedBy)
+	custom.UpdatedAt = parseTime(updatedAt)
+	custom.UpdatedBy = nullableString(updatedBy)
 
-	return &overrides, nil
+	return &custom, nil
 }
 
 // SaveMetadataOverrides saves or updates manual metadata overrides.
-func (r *Repository) SaveMetadataOverrides(ctx context.Context, overrides *models.MetadataOverrides) error {
+func (r *Repository) SaveMetadataOverrides(ctx context.Context, custom *models.CustomMetadata) error {
 	// Marshal overrides to JSON
-	overridesJSON, err := json.Marshal(overrides.Overrides)
+	overridesJSON, err := json.Marshal(custom.Overrides)
 	if err != nil {
 		return fmt.Errorf("failed to marshal overrides: %w", err)
 	}
@@ -2025,7 +2078,7 @@ func (r *Repository) SaveMetadataOverrides(ctx context.Context, overrides *model
 			overrides = excluded.overrides,
 			updated_at = excluded.updated_at,
 			updated_by = excluded.updated_by
-	`, overrides.AudiobookID, string(overridesJSON), now, overrides.UpdatedBy)
+	`, custom.AudiobookID, string(overridesJSON), now, custom.UpdatedBy)
 
 	return err
 }

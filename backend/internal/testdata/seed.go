@@ -13,14 +13,15 @@ import (
 )
 
 type TestBook struct {
-	Title        string
-	Subtitle     string
-	Author       string
-	Narrator     string
-	Description  string
-	SeriesInfo   string // JSON string or empty
-	DurationSec  float64
-	CoverURL     string
+	Title          string
+	Subtitle       string
+	Author         string
+	Narrator       string
+	Description    string
+	SeriesName     string // Series name
+	SeriesSequence string // Series number/sequence
+	DurationSec    float64
+	CoverURL       string
 	// User state
 	ProgressSec  float64
 	IsFavorite   bool
@@ -212,7 +213,7 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 
 	// Create metadata
 	metadataID := uuid.NewString()
-	var subtitle, narrator, description, coverURL, seriesInfo *string
+	var subtitle, narrator, description, coverURL, seriesName, seriesSequence *string
 	if book.Subtitle != "" {
 		subtitle = &book.Subtitle
 	}
@@ -225,17 +226,20 @@ func createTestBook(ctx context.Context, db *sql.DB, libraryID, libraryPathID, u
 	if book.CoverURL != "" {
 		coverURL = &book.CoverURL
 	}
-	if book.SeriesInfo != "" {
-		seriesInfo = &book.SeriesInfo
+	if book.SeriesName != "" {
+		seriesName = &book.SeriesName
+	}
+	if book.SeriesSequence != "" {
+		seriesSequence = &book.SeriesSequence
 	}
 
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO audiobook_metadata_agent (
-			id, title, subtitle, author, narrator, description, cover_url, series_info,
+			id, title, subtitle, author, narrator, description, cover_url, series_name, series_sequence,
 			source, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, metadataID, book.Title, subtitle, book.Author, narrator, description, coverURL, seriesInfo, "seed", now, now)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, metadataID, book.Title, subtitle, book.Author, narrator, description, coverURL, seriesName, seriesSequence, "seed", now, now)
 	if err != nil {
 		return "", err
 	}
@@ -297,128 +301,140 @@ func getFictionBooks() []TestBook {
 	return []TestBook{
 		// The Expanse series (5 books - completed series)
 		{
-			Title:        "Leviathan Wakes",
-			Author:       "James S.A. Corey",
-			Narrator:     "Jefferson Mays",
-			Description:  "The first book in The Expanse series...",
-			SeriesInfo:   `{"name":"The Expanse","sequence":1}`,
-			DurationSec:  62640, // 17.4 hours
-			ProgressSec:  62640, // 100% complete
-			IsFavorite:   true,
-			LastPlayedAt: &lastMonth,
+			Title:          "Leviathan Wakes",
+			Author:         "James S.A. Corey",
+			Narrator:       "Jefferson Mays",
+			Description:    "The first book in The Expanse series...",
+			SeriesName:     "The Expanse",
+			SeriesSequence: "1",
+			DurationSec:    62640, // 17.4 hours
+			ProgressSec:    62640, // 100% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &lastMonth,
 		},
 		{
-			Title:        "Caliban's War",
-			Author:       "James S.A. Corey",
-			Narrator:     "Jefferson Mays",
-			Description:  "The second book in The Expanse series...",
-			SeriesInfo:   `{"name":"The Expanse","sequence":2}`,
-			DurationSec:  74520, // 20.7 hours
-			ProgressSec:  74520, // 100% complete
-			LastPlayedAt: &lastMonth,
+			Title:          "Caliban's War",
+			Author:         "James S.A. Corey",
+			Narrator:       "Jefferson Mays",
+			Description:    "The second book in The Expanse series...",
+			SeriesName:     "The Expanse",
+			SeriesSequence: "2",
+			DurationSec:    74520, // 20.7 hours
+			ProgressSec:    74520, // 100% complete
+			LastPlayedAt:   &lastMonth,
 		},
 		{
-			Title:        "Abaddon's Gate",
-			Author:       "James S.A. Corey",
-			Narrator:     "Jefferson Mays",
-			Description:  "The third book in The Expanse series...",
-			SeriesInfo:   `{"name":"The Expanse","sequence":3}`,
-			DurationSec:  70200, // 19.5 hours
-			ProgressSec:  35100, // 50% complete
-			IsFavorite:   true,
-			LastPlayedAt: &yesterday,
+			Title:          "Abaddon's Gate",
+			Author:         "James S.A. Corey",
+			Narrator:       "Jefferson Mays",
+			Description:    "The third book in The Expanse series...",
+			SeriesName:     "The Expanse",
+			SeriesSequence: "3",
+			DurationSec:    70200, // 19.5 hours
+			ProgressSec:    35100, // 50% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &yesterday,
 		},
 		{
-			Title:       "Cibola Burn",
-			Author:      "James S.A. Corey",
-			Narrator:    "Jefferson Mays",
-			Description: "The fourth book in The Expanse series...",
-			SeriesInfo:  `{"name":"The Expanse","sequence":4}`,
-			DurationSec: 73800, // 20.5 hours
+			Title:          "Cibola Burn",
+			Author:         "James S.A. Corey",
+			Narrator:       "Jefferson Mays",
+			Description:    "The fourth book in The Expanse series...",
+			SeriesName:     "The Expanse",
+			SeriesSequence: "4",
+			DurationSec:    73800, // 20.5 hours
 		},
 		{
-			Title:       "Nemesis Games",
-			Author:      "James S.A. Corey",
-			Narrator:    "Jefferson Mays",
-			Description: "The fifth book in The Expanse series...",
-			SeriesInfo:  `{"name":"The Expanse","sequence":5}`,
-			DurationSec: 68400, // 19 hours
+			Title:          "Nemesis Games",
+			Author:         "James S.A. Corey",
+			Narrator:       "Jefferson Mays",
+			Description:    "The fifth book in The Expanse series...",
+			SeriesName:     "The Expanse",
+			SeriesSequence: "5",
+			DurationSec:    68400, // 19 hours
 		},
 
 		// The Kingkiller Chronicle (2 books)
 		{
-			Title:        "The Name of the Wind",
-			Author:       "Patrick Rothfuss",
-			Narrator:     "Nick Podehl",
-			Description:  "The tale of Kvothe, from his childhood in a troupe of traveling players...",
-			SeriesInfo:   `{"name":"The Kingkiller Chronicle","sequence":1}`,
-			DurationSec:  97200,  // 27 hours
-			ProgressSec:  24300,  // 25% complete
-			IsFavorite:   true,
-			LastPlayedAt: &yesterday,
+			Title:          "The Name of the Wind",
+			Author:         "Patrick Rothfuss",
+			Narrator:       "Nick Podehl",
+			Description:    "The tale of Kvothe, from his childhood in a troupe of traveling players...",
+			SeriesName:     "The Kingkiller Chronicle",
+			SeriesSequence: "1",
+			DurationSec:    97200,  // 27 hours
+			ProgressSec:    24300,  // 25% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &yesterday,
 		},
 		{
-			Title:       "The Wise Man's Fear",
-			Author:      "Patrick Rothfuss",
-			Narrator:    "Nick Podehl",
-			Description: "The second day of the story of Kvothe's life...",
-			SeriesInfo:  `{"name":"The Kingkiller Chronicle","sequence":2}`,
-			DurationSec: 151200, // 42 hours
+			Title:          "The Wise Man's Fear",
+			Author:         "Patrick Rothfuss",
+			Narrator:       "Nick Podehl",
+			Description:    "The second day of the story of Kvothe's life...",
+			SeriesName:     "The Kingkiller Chronicle",
+			SeriesSequence: "2",
+			DurationSec:    151200, // 42 hours
 		},
 
 		// The Stormlight Archive (3 books)
 		{
-			Title:        "The Way of Kings",
-			Author:       "Brandon Sanderson",
-			Narrator:     "Michael Kramer, Kate Reading",
-			Description:  "The first book in the epic Stormlight Archive series...",
-			SeriesInfo:   `{"name":"The Stormlight Archive","sequence":1}`,
-			DurationSec:  165600, // 46 hours
-			ProgressSec:  124200, // 75% complete
-			IsFavorite:   true,
-			LastPlayedAt: &yesterday,
+			Title:          "The Way of Kings",
+			Author:         "Brandon Sanderson",
+			Narrator:       "Michael Kramer, Kate Reading",
+			Description:    "The first book in the epic Stormlight Archive series...",
+			SeriesName:     "The Stormlight Archive",
+			SeriesSequence: "1",
+			DurationSec:    165600, // 46 hours
+			ProgressSec:    124200, // 75% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &yesterday,
 		},
 		{
-			Title:        "Words of Radiance",
-			Author:       "Brandon Sanderson",
-			Narrator:     "Michael Kramer, Kate Reading",
-			Description:  "The second book in The Stormlight Archive...",
-			SeriesInfo:   `{"name":"The Stormlight Archive","sequence":2}`,
-			DurationSec:  172800, // 48 hours
-			ProgressSec:  43200,  // 25% complete
-			LastPlayedAt: &twoDaysAgo,
+			Title:          "Words of Radiance",
+			Author:         "Brandon Sanderson",
+			Narrator:       "Michael Kramer, Kate Reading",
+			Description:    "The second book in The Stormlight Archive...",
+			SeriesName:     "The Stormlight Archive",
+			SeriesSequence: "2",
+			DurationSec:    172800, // 48 hours
+			ProgressSec:    43200,  // 25% complete
+			LastPlayedAt:   &twoDaysAgo,
 		},
 		{
-			Title:       "Oathbringer",
-			Author:      "Brandon Sanderson",
-			Narrator:    "Michael Kramer, Kate Reading",
-			Description: "The third book in The Stormlight Archive...",
-			SeriesInfo:  `{"name":"The Stormlight Archive","sequence":3}`,
-			DurationSec: 198000, // 55 hours
+			Title:          "Oathbringer",
+			Author:         "Brandon Sanderson",
+			Narrator:       "Michael Kramer, Kate Reading",
+			Description:    "The third book in The Stormlight Archive...",
+			SeriesName:     "The Stormlight Archive",
+			SeriesSequence: "3",
+			DurationSec:    198000, // 55 hours
 		},
 
 		// Harry Potter (2 books for now)
 		{
-			Title:        "Harry Potter and the Sorcerer's Stone",
-			Author:       "J.K. Rowling",
-			Narrator:     "Jim Dale",
-			Description:  "The story of Harry Potter, a young wizard who discovers his magical heritage...",
-			SeriesInfo:   `{"name":"Harry Potter","sequence":1}`,
-			DurationSec:  28800, // 8 hours
-			ProgressSec:  28800, // 100% complete
-			IsFavorite:   true,
-			LastPlayedAt: &lastWeek,
+			Title:          "Harry Potter and the Sorcerer's Stone",
+			Author:         "J.K. Rowling",
+			Narrator:       "Jim Dale",
+			Description:    "The story of Harry Potter, a young wizard who discovers his magical heritage...",
+			SeriesName:     "Harry Potter",
+			SeriesSequence: "1",
+			DurationSec:    28800, // 8 hours
+			ProgressSec:    28800, // 100% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &lastWeek,
 		},
 		{
-			Title:        "Harry Potter and the Chamber of Secrets",
-			Author:       "J.K. Rowling",
-			Narrator:     "Jim Dale",
-			Description:  "Harry's second year at Hogwarts...",
-			SeriesInfo:   `{"name":"Harry Potter","sequence":2}`,
-			DurationSec:  32400, // 9 hours
-			ProgressSec:  32400, // 100% complete
-			IsFavorite:   true,
-			LastPlayedAt: &lastWeek,
+			Title:          "Harry Potter and the Chamber of Secrets",
+			Author:         "J.K. Rowling",
+			Narrator:       "Jim Dale",
+			Description:    "Harry's second year at Hogwarts...",
+			SeriesName:     "Harry Potter",
+			SeriesSequence: "2",
+			DurationSec:    32400, // 9 hours
+			ProgressSec:    32400, // 100% complete
+			IsFavorite:     true,
+			LastPlayedAt:   &lastWeek,
 		},
 
 		// Standalone books

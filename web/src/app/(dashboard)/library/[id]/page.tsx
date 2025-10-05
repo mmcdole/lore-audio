@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import {
   ArrowLeft,
   Clock,
@@ -19,6 +19,7 @@ import {
   Pencil,
   Lock,
   LockOpen,
+  Unlink,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAudiobookQuery, useCatalogQuery } from "@/lib/api/hooks";
+import type { Audiobook } from "@/lib/api/types";
 import { apiFetch } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -85,6 +87,8 @@ export default function AudiobookDetailPage() {
     author: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
     narrator: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
     description: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
+    series_name: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
+    series_position: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
   });
 
   // Active tab in metadata dialog
@@ -135,8 +139,9 @@ export default function AudiobookDetailPage() {
       setMatchDialogOpen(false);
       setEditDialogOpen(false);
 
-      // Invalidate catalog query to refetch data after closing dialog
+      // Invalidate queries to refetch updated metadata
       await queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      await queryClient.invalidateQueries({ queryKey: ['library', 'detail', audiobookId] });
     } catch (err) {
       console.error("Failed to match metadata:", err);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -148,7 +153,7 @@ export default function AudiobookDetailPage() {
   const relatedBooks = useMemo(() => {
     if (!audiobook?.metadata) return [];
 
-    const seriesInfo = audiobook.metadata.series_info;
+    const seriesName = audiobook.metadata.series_name;
     const author = audiobook.metadata.author;
 
     return allBooks
@@ -156,17 +161,7 @@ export default function AudiobookDetailPage() {
         if (book.id === audiobookId) return false;
 
         // Match by series
-        if (seriesInfo && book.metadata?.series_info) {
-          try {
-            const currentSeries = typeof seriesInfo === 'string' ? JSON.parse(seriesInfo) : seriesInfo;
-            const bookSeries = typeof book.metadata.series_info === 'string'
-              ? JSON.parse(book.metadata.series_info)
-              : book.metadata.series_info;
-            if (currentSeries.name === bookSeries.name) return true;
-          } catch {
-            if (seriesInfo === book.metadata.series_info) return true;
-          }
-        }
+        if (seriesName && book.metadata?.series_name === seriesName) return true;
 
         // Match by author
         if (author && book.metadata?.author === author) return true;
@@ -215,29 +210,55 @@ export default function AudiobookDetailPage() {
     }
   };
 
-  const handleOpenEditDialog = () => {
-    // Load agent and file values from metadata layers
-    const overrides = audiobook?.metadata_overrides?.overrides || {};
+  // Load form state from audiobook metadata layers
+  const loadEditForm = useCallback(() => {
+    if (!audiobook) return;
+
+    const overrides = audiobook.custom_metadata?.overrides || {};
 
     const loadFieldState = (fieldName: string): FieldState => {
-      const override = overrides[fieldName];
-      // Use metadata layers directly from audiobook object
-      const agentValue = (audiobook?.agent_metadata as any)?.[fieldName] || "";
-      const fileValue = (audiobook?.embedded_metadata as any)?.[fieldName] || "";
+      // For series_position field, map to series_sequence in data model
+      const dataFieldName = fieldName === "series_position" ? "series_sequence" : fieldName;
 
-      // Determine source from override
-      let source: Source = "agent";
-      if (override?.value) {
-        source = "custom";
-      } else if (override?.locked && fileValue) {
-        // If locked but no custom value, it's locked to a source
-        source = agentValue ? "agent" : "file";
+      const override = overrides[dataFieldName];
+
+      // Load values directly from metadata layers
+      let agentValue = "";
+      let fileValue = "";
+      let customValue = "";
+
+      if (fieldName === "series_name" || fieldName === "series_position") {
+        // Series fields: read from series_name and series_sequence columns
+        agentValue = String((audiobook.agent_metadata as any)?.[dataFieldName] || "");
+        fileValue = String((audiobook.embedded_metadata as any)?.[dataFieldName] || "");
+        customValue = override?.value || "";
+      } else {
+        // Normal fields: use metadata layers directly
+        agentValue = (audiobook.agent_metadata as any)?.[fieldName] || "";
+        fileValue = (audiobook.embedded_metadata as any)?.[fieldName] || "";
+        customValue = override?.value || "";
       }
+
+      // Determine source from override and available metadata
+      let source: Source;
+      if (customValue) {
+        source = "custom";
+      } else if (override?.locked) {
+        // If locked but no custom value, it's locked to a source
+        source = agentValue ? "agent" : fileValue ? "file" : "custom";
+      } else {
+        // Not locked - default to first available source
+        source = agentValue ? "agent" : fileValue ? "file" : "custom";
+      }
+
+      // Custom values are always locked (auto-lock on save)
+      const hasCustomValue = !!customValue;
+      const isLocked = override?.locked || hasCustomValue;
 
       return {
         source,
-        locked: override?.locked || false,
-        customValue: override?.value || "",
+        locked: isLocked,
+        customValue: customValue || "",
         agentValue: agentValue || "",
         fileValue: fileValue || "",
       };
@@ -249,41 +270,78 @@ export default function AudiobookDetailPage() {
       author: loadFieldState("author"),
       narrator: loadFieldState("narrator"),
       description: loadFieldState("description"),
+      series_name: loadFieldState("series_name"),
+      series_position: loadFieldState("series_position"),
     });
+  }, [audiobook]);
+
+  // Reload form when audiobook changes and dialog is open
+  useEffect(() => {
+    if (editDialogOpen && audiobook) {
+      loadEditForm();
+    }
+  }, [audiobook, editDialogOpen, loadEditForm]);
+
+  // Reset search state when dialog closes
+  useEffect(() => {
+    if (!editDialogOpen) {
+      setSearchQuery("");
+      setSearchResults([]);
+      setIsSearching(false);
+    }
+  }, [editDialogOpen]);
+
+  const handleOpenEditDialog = () => {
     setMetadataTab("edit");
     setEditDialogOpen(true);
   };
 
   const handleSaveMetadata = async () => {
     try {
-      // Build overrides object from editForm
+      // Build overrides object with lock-to-value semantics
       const overrides: Record<string, { value?: string; locked: boolean }> = {};
 
+      // Process all fields including series fields
       Object.entries(editForm).forEach(([field, data]) => {
-        if (data.source === "custom") {
-          // Custom value - always save with locked=true and the custom value
-          overrides[field] = {
-            value: data.customValue || undefined,
-            locked: true,
-          };
-        } else if (data.locked) {
-          // Locked to agent or file source - save locked=true with no value
-          // Server will use current agent/file value as frozen snapshot
-          overrides[field] = {
-            locked: true,
+        // Map series_position to series_sequence in the data model
+        const dataFieldName = field === "series_position" ? "series_sequence" : field;
+
+        const effectiveValue = getEffectiveValue(data);
+
+        if (data.locked || data.customValue) {
+          // Locked OR has custom value = save as locked custom value
+          // Auto-lock custom values when saving (typing implicitly locks)
+          if (effectiveValue) {
+            overrides[dataFieldName] = {
+              value: effectiveValue,
+              locked: true,
+            };
+          }
+        } else {
+          // No custom value and not locked = delete override
+          overrides[dataFieldName] = {
+            locked: false,
           };
         }
-        // If source is agent/file and not locked, don't save anything (use latest from source)
       });
 
-      await apiFetch(`/admin/audiobooks/${audiobookId}/metadata`, {
+      const response = await apiFetch<Audiobook>(`/admin/audiobooks/${audiobookId}/metadata`, {
         method: 'PATCH',
         authToken: apiKey ?? undefined,
         body: JSON.stringify({ overrides }),
       });
 
-      // Invalidate catalog query to refetch data
-      queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      console.log('Save response:', response);
+      console.log('Custom metadata in response:', response.custom_metadata);
+
+      // Update the query data directly with the response
+      queryClient.setQueryData(['library', 'detail', audiobookId], response);
+
+      // Force a refetch to ensure we have latest data
+      await queryClient.refetchQueries({ queryKey: ['library', 'detail', audiobookId] });
+
+      // Also invalidate to ensure other queries update
+      await queryClient.invalidateQueries({ queryKey: ['catalog'], refetchType: 'active' });
 
       setEditDialogOpen(false);
     } catch (err) {
@@ -293,10 +351,38 @@ export default function AudiobookDetailPage() {
   };
 
   const toggleFieldLock = (field: string) => {
-    setEditForm({
-      ...editForm,
-      [field]: { ...editForm[field], locked: !editForm[field].locked },
-    });
+    const currentField = editForm[field];
+    const willBeLocked = !currentField.locked;
+
+    if (willBeLocked) {
+      // Locking: snapshot current effective value to custom
+      const effectiveValue = getEffectiveValue(currentField);
+      setEditForm({
+        ...editForm,
+        [field]: {
+          ...currentField,
+          customValue: effectiveValue, // Snapshot the current value
+          source: "custom", // Set source to custom
+          locked: true,
+        },
+      });
+    } else {
+      // Unlocking: clear custom value, revert to cascade
+      // Determine the source based on what's available
+      const newSource: Source = currentField.agentValue ? "agent"
+                                : currentField.fileValue ? "file"
+                                : "custom";
+
+      setEditForm({
+        ...editForm,
+        [field]: {
+          ...currentField,
+          customValue: "", // Clear custom value
+          source: newSource, // Update source to reflect cascade
+          locked: false,
+        },
+      });
+    }
   };
 
   const updateFieldSource = (field: string, source: Source) => {
@@ -322,26 +408,16 @@ export default function AudiobookDetailPage() {
   const updateFieldCustomValue = (field: string, value: string) => {
     const currentField = editForm[field];
 
-    // If not already custom, switch to custom when they start typing
-    if (currentField.source !== "custom") {
-      setEditForm({
-        ...editForm,
-        [field]: {
-          ...currentField,
-          source: "custom",
-          customValue: value,
-        },
-      });
-    } else {
-      // Already custom, just update the value
-      setEditForm({
-        ...editForm,
-        [field]: {
-          ...currentField,
-          customValue: value,
-        },
-      });
-    }
+    // Lock-to-value: typing creates custom value but doesn't auto-lock
+    // User must explicitly lock to freeze the value
+    setEditForm({
+      ...editForm,
+      [field]: {
+        ...currentField,
+        customValue: value,
+        // Keep locked state as-is (typing doesn't auto-lock)
+      },
+    });
   };
 
   const setAllToAgent = () => {
@@ -389,9 +465,12 @@ export default function AudiobookDetailPage() {
   };
 
   const getEffectiveValue = (field: FieldState): string => {
-    if (field.source === "custom") return field.customValue;
-    if (field.source === "agent") return field.agentValue;
-    return field.fileValue;
+    // Lock-to-value: locked fields always show custom value
+    if (field.locked) {
+      return field.customValue;
+    }
+    // Unlocked: use cascade priority (agent → file → empty)
+    return field.customValue || field.agentValue || field.fileValue || "";
   };
 
   if (isPending) {
@@ -421,11 +500,10 @@ export default function AudiobookDetailPage() {
     );
   }
 
-  const seriesInfo = audiobook.metadata?.series_info ? (
-    typeof audiobook.metadata.series_info === 'string'
-      ? JSON.parse(audiobook.metadata.series_info)
-      : audiobook.metadata.series_info
-  ) : null;
+  const seriesInfo = audiobook.metadata?.series_name ? {
+    name: audiobook.metadata.series_name,
+    sequence: audiobook.metadata.series_sequence || null
+  } : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -468,11 +546,6 @@ export default function AudiobookDetailPage() {
                     <Headphones className="h-20 w-20" />
                   </div>
                 )}
-                {audiobook.user_data?.is_favorite && (
-                  <div className="absolute right-3 top-3 rounded-full bg-primary/90 p-2 shadow-lg">
-                    <Heart className="h-5 w-5 fill-current text-primary-foreground" />
-                  </div>
-                )}
               </div>
             </div>
 
@@ -480,7 +553,7 @@ export default function AudiobookDetailPage() {
             <div className="flex flex-1 flex-col justify-center">
               {seriesInfo && (
                 <Badge variant="outline" className="mb-3 w-fit">
-                  {seriesInfo.name} #{seriesInfo.sequence || seriesInfo.position || "?"}
+                  {seriesInfo.name} #{seriesInfo.sequence || "?"}
                 </Badge>
               )}
               <h1 className="mb-2 text-4xl font-bold tracking-tight">
@@ -667,7 +740,7 @@ export default function AudiobookDetailPage() {
               <div className="flex items-start gap-2 p-3 bg-muted/30 rounded-lg text-sm">
                 <div className="text-muted-foreground mt-0.5">💡</div>
                 <div className="text-muted-foreground">
-                  Start typing in any field to create a custom value. <strong>Agent</strong> and <strong>File</strong> sources refresh automatically unless locked. Use the lock icon to prevent refresh.
+                  <strong>Lock-to-Value:</strong> Type to edit any field. Saving auto-locks custom values. Click 🔒 to manually lock/unlock. Locked values won't update from metadata sources.
                 </div>
               </div>
 
@@ -713,6 +786,26 @@ export default function AudiobookDetailPage() {
                 />
 
                 <MetadataField
+                  label="Series Name"
+                  id="series_name"
+                  fieldState={editForm.series_name}
+                  onSourceChange={(s) => updateFieldSource("series_name", s)}
+                  onLockToggle={() => toggleFieldLock("series_name")}
+                  onCustomValueChange={(v) => updateFieldCustomValue("series_name", v)}
+                  placeholder="Enter series name"
+                />
+
+                <MetadataField
+                  label="Series Number"
+                  id="series_position"
+                  fieldState={editForm.series_position}
+                  onSourceChange={(s) => updateFieldSource("series_position", s)}
+                  onLockToggle={() => toggleFieldLock("series_position")}
+                  onCustomValueChange={(v) => updateFieldCustomValue("series_position", v)}
+                  placeholder="Enter series number (e.g., 1, 2.5)"
+                />
+
+                <MetadataField
                   label="Description"
                   id="description"
                   fieldState={editForm.description}
@@ -738,6 +831,62 @@ export default function AudiobookDetailPage() {
             {/* Match Tab */}
             <TabsContent value="match" className="mt-4">
               <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2">
+                {/* Current Match Display */}
+                {audiobook.metadata_id && audiobook.agent_metadata && (
+                  <div className="border rounded-lg p-4 bg-card">
+                    <div className="flex items-center gap-4">
+                      {audiobook.agent_metadata.cover_url && (
+                        <img
+                          src={audiobook.agent_metadata.cover_url}
+                          alt={audiobook.agent_metadata.title}
+                          className="w-16 h-20 rounded object-cover"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-semibold">Currently Matched</h4>
+                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary">
+                            {audiobook.agent_metadata.source === 'audible' ? 'Audible' :
+                             audiobook.agent_metadata.source === 'google' ? 'Google Books' :
+                             audiobook.agent_metadata.source}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium">
+                          {audiobook.agent_metadata.title}
+                        </p>
+                        {audiobook.agent_metadata.author && (
+                          <p className="text-xs text-muted-foreground">
+                            by {audiobook.agent_metadata.author}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          if (confirm("Remove metadata match? Locked fields will be preserved.")) {
+                            try {
+                              await apiFetch(`/admin/audiobooks/${audiobookId}/link`, {
+                                method: 'DELETE',
+                                authToken: apiKey ?? undefined,
+                              });
+                              await queryClient.invalidateQueries({ queryKey: ['catalog'] });
+                              await queryClient.invalidateQueries({ queryKey: ['library', 'detail', audiobookId] });
+                            } catch (err) {
+                              console.error("Failed to unmatch:", err);
+                              const errorMsg = err instanceof Error ? err.message : String(err);
+                              alert(`Failed to unmatch metadata: ${errorMsg}`);
+                            }
+                          }
+                        }}
+                      >
+                        <Unlink className="h-4 w-4 mr-1" />
+                        Unmatch
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Provider and Search */}
                 <div className="space-y-4">
                   <div>
@@ -872,18 +1021,21 @@ export default function AudiobookDetailPage() {
                   <div className="rounded-lg border border-border/40 bg-card/50 p-4">
                     <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
                       <Badge variant="outline">Priority 1</Badge>
-                      Manual Overrides
+                      Custom Metadata
                     </h4>
                     <div className="text-xs text-muted-foreground">
-                      {audiobook?.metadata_overrides?.overrides && Object.keys(audiobook.metadata_overrides.overrides).length > 0 ? (
+                      {audiobook?.custom_metadata?.overrides && Object.keys(audiobook.custom_metadata.overrides).length > 0 ? (
                         <ul className="space-y-1">
-                          {Object.entries(audiobook.metadata_overrides.overrides).map(([field, override]) => (
-                            <li key={field}>
-                              <span className="font-medium capitalize">{field}:</span>{" "}
-                              {override.value || "(locked, no override value)"}
-                              {override.locked && <Lock className="inline h-3 w-3 ml-1" />}
-                            </li>
-                          ))}
+                          {Object.entries(audiobook.custom_metadata.overrides).map(([field, override]) => {
+                            const displayValue = override.value || "(locked, no override value)";
+                            return (
+                              <li key={field}>
+                                <span className="font-medium capitalize">{field.replace(/_/g, ' ')}:</span>{" "}
+                                {displayValue}
+                                {override.locked && <Lock className="inline h-3 w-3 ml-1" />}
+                              </li>
+                            );
+                          })}
                         </ul>
                       ) : (
                         <p>No manual overrides set</p>
@@ -902,11 +1054,35 @@ export default function AudiobookDetailPage() {
                           {audiobook.agent_metadata.title && (
                             <li><span className="font-medium">Title:</span> {audiobook.agent_metadata.title}</li>
                           )}
+                          {audiobook.agent_metadata.subtitle && (
+                            <li><span className="font-medium">Subtitle:</span> {audiobook.agent_metadata.subtitle}</li>
+                          )}
                           {audiobook.agent_metadata.author && (
                             <li><span className="font-medium">Author:</span> {audiobook.agent_metadata.author}</li>
                           )}
                           {audiobook.agent_metadata.narrator && (
                             <li><span className="font-medium">Narrator:</span> {audiobook.agent_metadata.narrator}</li>
+                          )}
+                          {audiobook.agent_metadata.publisher && (
+                            <li><span className="font-medium">Publisher:</span> {audiobook.agent_metadata.publisher}</li>
+                          )}
+                          {audiobook.agent_metadata.published_date && (
+                            <li><span className="font-medium">Published:</span> {audiobook.agent_metadata.published_date}</li>
+                          )}
+                          {audiobook.agent_metadata.description && (
+                            <li><span className="font-medium">Description:</span> {audiobook.agent_metadata.description.substring(0, 100)}...</li>
+                          )}
+                          {audiobook.agent_metadata.series_name && (
+                            <li><span className="font-medium">Series Name:</span> {audiobook.agent_metadata.series_name}</li>
+                          )}
+                          {audiobook.agent_metadata.series_sequence && (
+                            <li><span className="font-medium">Series Number:</span> {audiobook.agent_metadata.series_sequence}</li>
+                          )}
+                          {audiobook.agent_metadata.cover_url && (
+                            <li><span className="font-medium">Cover URL:</span> {audiobook.agent_metadata.cover_url.substring(0, 50)}...</li>
+                          )}
+                          {audiobook.agent_metadata.source && (
+                            <li><span className="font-medium">Source:</span> {audiobook.agent_metadata.source}</li>
                           )}
                         </ul>
                       ) : (
@@ -1045,15 +1221,24 @@ function MetadataField({
   multiline?: boolean;
 }) {
   const getEffectiveValue = (): string => {
-    if (fieldState.source === "custom") return fieldState.customValue;
-    if (fieldState.source === "agent") return fieldState.agentValue;
-    return fieldState.fileValue;
+    // Lock-to-value: locked fields always show custom value
+    if (fieldState.locked) {
+      return fieldState.customValue;
+    }
+    // Unlocked: use cascade priority (custom → agent → file → empty)
+    return fieldState.customValue || fieldState.agentValue || fieldState.fileValue || "";
   };
 
   const getSourceLabel = () => {
-    if (fieldState.source === "custom") return "Custom";
-    if (fieldState.source === "agent") return "Agent";
-    return "File";
+    // Lock-to-value: show "Custom" when locked (value is frozen)
+    if (fieldState.locked) {
+      return "Custom (Locked)";
+    }
+    // Unlocked: show source based on priority
+    if (fieldState.customValue) return "Custom";
+    if (fieldState.agentValue) return "Agent";
+    if (fieldState.fileValue) return "File";
+    return "Custom"; // Default for empty
   };
 
   return (
