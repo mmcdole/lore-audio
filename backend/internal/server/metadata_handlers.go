@@ -18,16 +18,19 @@ import (
 
 // UpdateAudiobookMetadataRequest represents the request body for updating metadata
 type UpdateAudiobookMetadataRequest struct {
-	Overrides map[string]models.FieldOverride `json:"overrides"`
+	Overrides map[string]struct {
+		Value  string `json:"value"`
+		Locked bool   `json:"locked"`
+	} `json:"overrides"`
 }
 
 // handleUpdateAudiobookMetadata saves manual metadata overrides for an audiobook
 // PATCH /api/v1/admin/audiobooks/:id/metadata
 //
-// Lock Semantics (lock-to-value):
-// - locked=true: MUST have a value (snapshots current value to custom)
-// - locked=false: Deletes the override (reverts to cascade)
-// - Invalid: {value: X, locked: false} - custom values are always locked
+// Simplified lock semantics:
+// - Presence in overrides map = locked (frozen custom value)
+// - Absence from map = unlocked (uses cascade: agent → file)
+// - Empty string value = delete the override
 func (h *handler) handleUpdateAudiobookMetadata(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "id")
 	if audiobookID == "" {
@@ -49,37 +52,63 @@ func (h *handler) handleUpdateAudiobookMetadata(w http.ResponseWriter, r *http.R
 	}
 	userID := user.ID
 
-	// Validate lock semantics: locked fields must have values
-	validatedOverrides := make(map[string]models.FieldOverride)
-	for field, override := range req.Overrides {
-		if override.Locked {
-			// Locked must have a value (lock-to-value semantics)
-			if override.Value == nil || *override.Value == "" {
-				http.Error(w, fmt.Sprintf("field '%s' is locked but has no value - invalid state", field), http.StatusBadRequest)
-				return
-			}
-			validatedOverrides[field] = override
-		} else {
-			// Unlocked with value is invalid (custom values are always locked)
-			if override.Value != nil && *override.Value != "" {
-				http.Error(w, fmt.Sprintf("field '%s' has value but is not locked - invalid state", field), http.StatusBadRequest)
-				return
-			}
-			// Unlocked with no value means delete this override (handled by omitting from map)
-			// Don't add to validatedOverrides - this effectively deletes the field
-		}
-	}
-
-	// Create custom metadata with validated data
+	// Build CustomMetadata struct from overrides map
+	// Locked fields are tracked in the Locks map
+	// locked=true, value="foo" → locked to "foo"
+	// locked=true, value="" → locked to empty (overrides cascade)
+	// locked=false → unlocked (uses cascade)
 	custom := &models.CustomMetadata{
 		AudiobookID: audiobookID,
-		Overrides:   validatedOverrides,
+		Locks:       make(map[string]bool),
 		UpdatedAt:   time.Now().UTC(),
 		UpdatedBy:   &userID,
 	}
 
-	// If no overrides remain, delete the entire custom metadata record
-	if len(validatedOverrides) == 0 {
+	hasAnyLocked := false
+	for field, override := range req.Overrides {
+		if !override.Locked {
+			continue // Not locked, skip
+		}
+
+		hasAnyLocked = true
+		custom.Locks[field] = true
+
+		// Set value even if empty (locked to empty is valid)
+		value := override.Value
+		switch field {
+		case "title":
+			custom.Title = &value
+		case "subtitle":
+			custom.Subtitle = &value
+		case "author":
+			custom.Author = &value
+		case "narrator":
+			custom.Narrator = &value
+		case "description":
+			custom.Description = &value
+		case "cover_url":
+			custom.CoverURL = &value
+		case "series_name":
+			custom.SeriesName = &value
+		case "series_sequence":
+			custom.SeriesSequence = &value
+		case "release_date":
+			custom.ReleaseDate = &value
+		case "isbn":
+			custom.ISBN = &value
+		case "asin":
+			custom.ASIN = &value
+		case "language":
+			custom.Language = &value
+		case "publisher":
+			custom.Publisher = &value
+		case "genres":
+			custom.Genres = &value
+		}
+	}
+
+	// If no fields are locked, delete the entire custom metadata record
+	if !hasAnyLocked {
 		if err := h.svc.DeleteMetadataOverrides(r.Context(), audiobookID); err != nil {
 			http.Error(w, "failed to delete custom metadata", http.StatusInternalServerError)
 			return

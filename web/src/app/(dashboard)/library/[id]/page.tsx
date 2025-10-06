@@ -59,6 +59,13 @@ import { apiFetch } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth/auth-context";
 
+type FieldState = {
+  customValue: string;  // Custom value (can be empty if locked)
+  locked: boolean;      // Whether field is locked
+  agentValue: string;   // Value from agent metadata
+  fileValue: string;    // Value from file tags
+};
+
 export default function AudiobookDetailPage() {
   const queryClient = useQueryClient();
   const { apiKey } = useAuth();
@@ -71,24 +78,15 @@ export default function AudiobookDetailPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<"audible" | "google">("audible");
 
-  // Edit form state with source/lock/custom tracking
-  type Source = "agent" | "file" | "custom";
-  type FieldState = {
-    source: Source;
-    locked: boolean;
-    customValue: string;
-    agentValue: string;
-    fileValue: string;
-  };
-
+  // Edit form state - lock-to-value model
   const [editForm, setEditForm] = useState<Record<string, FieldState>>({
-    title: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    subtitle: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    author: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    narrator: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    description: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    series_name: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
-    series_position: { source: "agent", locked: false, customValue: "", agentValue: "", fileValue: "" },
+    title: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    subtitle: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    author: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    narrator: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    description: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    series_name: { customValue: "", locked: false, agentValue: "", fileValue: "" },
+    series_position: { customValue: "", locked: false, agentValue: "", fileValue: "" },
   });
 
   // Active tab in metadata dialog
@@ -116,7 +114,7 @@ export default function AudiobookDetailPage() {
         `/metadata/search?provider=${selectedProvider}&title=${encodeURIComponent(searchQuery)}${authorParam}`,
         { authToken: apiKey ?? undefined }
       );
-      setSearchResults(response || []);
+      setSearchResults(Array.isArray(response) ? response : []);
     } catch (err) {
       console.error("Failed to search metadata:", err);
       setSearchResults([]);
@@ -186,12 +184,13 @@ export default function AudiobookDetailPage() {
   const handleMarkComplete = async () => {
     if (!audiobook?.total_duration_sec) return;
     try {
-      // TODO: Implement mark as complete API call
-      // await apiFetch(`/library/${audiobookId}/progress`, {
-      //   method: 'POST',
-      //   body: { progress_sec: audiobook.total_duration_sec }
-      // });
-      console.log("Marking as complete:", audiobookId);
+      await apiFetch(`/library/${audiobookId}/progress`, {
+        method: 'POST',
+        authToken: apiKey ?? undefined,
+        body: JSON.stringify({ progress_sec: audiobook.total_duration_sec }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['library', 'detail', audiobookId] });
+      await queryClient.invalidateQueries({ queryKey: ['catalog'] });
     } catch (err) {
       console.error("Failed to mark as complete:", err);
     }
@@ -199,14 +198,30 @@ export default function AudiobookDetailPage() {
 
   const handleMarkUnplayed = async () => {
     try {
-      // TODO: Implement mark as unplayed API call
-      // await apiFetch(`/library/${audiobookId}/progress`, {
-      //   method: 'POST',
-      //   body: { progress_sec: 0 }
-      // });
-      console.log("Marking as unplayed:", audiobookId);
+      await apiFetch(`/library/${audiobookId}/progress`, {
+        method: 'POST',
+        authToken: apiKey ?? undefined,
+        body: JSON.stringify({ progress_sec: 0 }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['library', 'detail', audiobookId] });
+      await queryClient.invalidateQueries({ queryKey: ['catalog'] });
     } catch (err) {
       console.error("Failed to mark as unplayed:", err);
+    }
+  };
+
+  const handleToggleFavorite = async () => {
+    try {
+      const newValue = !audiobook?.user_data?.is_favorite;
+      await apiFetch(`/library/${audiobookId}/favorite`, {
+        method: 'POST',
+        authToken: apiKey ?? undefined,
+        body: JSON.stringify({ is_favorite: newValue }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['library', 'detail', audiobookId] });
+      await queryClient.invalidateQueries({ queryKey: ['catalog'] });
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
     }
   };
 
@@ -214,13 +229,9 @@ export default function AudiobookDetailPage() {
   const loadEditForm = useCallback(() => {
     if (!audiobook) return;
 
-    const overrides = audiobook.custom_metadata?.overrides || {};
-
     const loadFieldState = (fieldName: string): FieldState => {
       // For series_position field, map to series_sequence in data model
       const dataFieldName = fieldName === "series_position" ? "series_sequence" : fieldName;
-
-      const override = overrides[dataFieldName];
 
       // Load values directly from metadata layers
       let agentValue = "";
@@ -231,34 +242,22 @@ export default function AudiobookDetailPage() {
         // Series fields: read from series_name and series_sequence columns
         agentValue = String((audiobook.agent_metadata as any)?.[dataFieldName] || "");
         fileValue = String((audiobook.embedded_metadata as any)?.[dataFieldName] || "");
-        customValue = override?.value || "";
       } else {
         // Normal fields: use metadata layers directly
         agentValue = (audiobook.agent_metadata as any)?.[fieldName] || "";
         fileValue = (audiobook.embedded_metadata as any)?.[fieldName] || "";
-        customValue = override?.value || "";
       }
 
-      // Determine source from override and available metadata
-      let source: Source;
-      if (customValue) {
-        source = "custom";
-      } else if (override?.locked) {
-        // If locked but no custom value, it's locked to a source
-        source = agentValue ? "agent" : fileValue ? "file" : "custom";
-      } else {
-        // Not locked - default to first available source
-        source = agentValue ? "agent" : fileValue ? "file" : "custom";
+      // Check if field is locked in custom metadata
+      const isLocked = (audiobook.custom_metadata as any)?.locks?.[dataFieldName] === true;
+      if (isLocked) {
+        // Field is locked - use custom value (can be empty string)
+        customValue = (audiobook.custom_metadata as any)?.[dataFieldName] || "";
       }
-
-      // Custom values are always locked (auto-lock on save)
-      const hasCustomValue = !!customValue;
-      const isLocked = override?.locked || hasCustomValue;
 
       return {
-        source,
+        customValue: customValue,
         locked: isLocked,
-        customValue: customValue || "",
         agentValue: agentValue || "",
         fileValue: fileValue || "",
       };
@@ -298,31 +297,18 @@ export default function AudiobookDetailPage() {
 
   const handleSaveMetadata = async () => {
     try {
-      // Build overrides object with lock-to-value semantics
-      const overrides: Record<string, { value?: string; locked: boolean }> = {};
+      // Build overrides object with locked flags
+      const overrides: Record<string, { value: string; locked: boolean }> = {};
 
       // Process all fields including series fields
       Object.entries(editForm).forEach(([field, data]) => {
         // Map series_position to series_sequence in the data model
         const dataFieldName = field === "series_position" ? "series_sequence" : field;
 
-        const effectiveValue = getEffectiveValue(data);
-
-        if (data.locked || data.customValue) {
-          // Locked OR has custom value = save as locked custom value
-          // Auto-lock custom values when saving (typing implicitly locks)
-          if (effectiveValue) {
-            overrides[dataFieldName] = {
-              value: effectiveValue,
-              locked: true,
-            };
-          }
-        } else {
-          // No custom value and not locked = delete override
-          overrides[dataFieldName] = {
-            locked: false,
-          };
-        }
+        overrides[dataFieldName] = {
+          value: data.customValue,
+          locked: data.locked,
+        };
       });
 
       const response = await apiFetch<Audiobook>(`/admin/audiobooks/${audiobookId}/metadata`, {
@@ -352,95 +338,50 @@ export default function AudiobookDetailPage() {
 
   const toggleFieldLock = (field: string) => {
     const currentField = editForm[field];
-    const willBeLocked = !currentField.locked;
 
-    if (willBeLocked) {
-      // Locking: snapshot current effective value to custom
+    if (currentField.locked) {
+      // Unlocking: clear custom value and lock flag
+      setEditForm({
+        ...editForm,
+        [field]: {
+          ...currentField,
+          customValue: "",
+          locked: false,
+        },
+      });
+    } else {
+      // Locking: snapshot current effective value and set lock flag
       const effectiveValue = getEffectiveValue(currentField);
       setEditForm({
         ...editForm,
         [field]: {
           ...currentField,
-          customValue: effectiveValue, // Snapshot the current value
-          source: "custom", // Set source to custom
+          customValue: effectiveValue,
           locked: true,
         },
       });
-    } else {
-      // Unlocking: clear custom value, revert to cascade
-      // Determine the source based on what's available
-      const newSource: Source = currentField.agentValue ? "agent"
-                                : currentField.fileValue ? "file"
-                                : "custom";
-
-      setEditForm({
-        ...editForm,
-        [field]: {
-          ...currentField,
-          customValue: "", // Clear custom value
-          source: newSource, // Update source to reflect cascade
-          locked: false,
-        },
-      });
     }
-  };
-
-  const updateFieldSource = (field: string, source: Source) => {
-    const currentField = editForm[field];
-    let updates: Partial<FieldState> = { source };
-
-    // When switching to custom, prefill with current effective value
-    if (source === "custom") {
-      const effectiveValue = currentField.source === "custom"
-        ? currentField.customValue
-        : currentField.source === "agent"
-          ? currentField.agentValue
-          : currentField.fileValue;
-      updates.customValue = effectiveValue;
-    }
-
-    setEditForm({
-      ...editForm,
-      [field]: { ...currentField, ...updates },
-    });
   };
 
   const updateFieldCustomValue = (field: string, value: string) => {
-    const currentField = editForm[field];
-
-    // Lock-to-value: typing creates custom value but doesn't auto-lock
-    // User must explicitly lock to freeze the value
+    // Typing sets custom value and locks the field
     setEditForm({
       ...editForm,
       [field]: {
-        ...currentField,
+        ...editForm[field],
         customValue: value,
-        // Keep locked state as-is (typing doesn't auto-lock)
+        locked: true,
       },
     });
-  };
-
-  const setAllToAgent = () => {
-    const updated = { ...editForm };
-    Object.keys(updated).forEach(field => {
-      updated[field] = { ...updated[field], source: "agent" as Source };
-    });
-    setEditForm(updated);
-  };
-
-  const setAllToFile = () => {
-    const updated = { ...editForm };
-    Object.keys(updated).forEach(field => {
-      updated[field] = { ...updated[field], source: "file" as Source };
-    });
-    setEditForm(updated);
   };
 
   const lockAll = () => {
     const updated = { ...editForm };
     Object.keys(updated).forEach(field => {
-      if (updated[field].source !== "custom") {
-        updated[field] = { ...updated[field], locked: true };
+      if (!updated[field].locked) {
+        // Not locked yet - snapshot effective value and lock
+        const effectiveValue = getEffectiveValue(updated[field]);
+        updated[field] = { ...updated[field], customValue: effectiveValue, locked: true };
       }
     });
     setEditForm(updated);
@@ -449,28 +390,18 @@ export default function AudiobookDetailPage() {
   const unlockAll = () => {
     const updated = { ...editForm };
     Object.keys(updated).forEach(field => {
-      updated[field] = { ...updated[field], locked: false };
-    });
-    setEditForm(updated);
-  };
-
-  const clearAllCustom = () => {
-    const updated = { ...editForm };
-    Object.keys(updated).forEach(field => {
-      if (updated[field].source === "custom") {
-        updated[field] = { ...updated[field], source: "agent" as Source, customValue: "" };
-      }
+      updated[field] = { ...updated[field], customValue: "", locked: false };
     });
     setEditForm(updated);
   };
 
   const getEffectiveValue = (field: FieldState): string => {
-    // Lock-to-value: locked fields always show custom value
+    // Locked: use custom value (can be empty!)
     if (field.locked) {
       return field.customValue;
     }
-    // Unlocked: use cascade priority (agent → file → empty)
-    return field.customValue || field.agentValue || field.fileValue || "";
+    // Unlocked: cascade priority (agent → file → empty)
+    return field.agentValue || field.fileValue || "";
   };
 
   if (isPending) {
@@ -609,7 +540,7 @@ export default function AudiobookDetailPage() {
                   <Play className="h-5 w-5 fill-current" />
                   {progressPercent > 0 ? "Continue" : "Play"}
                 </Button>
-                <Button size="lg" variant="outline">
+                <Button size="lg" variant="outline" onClick={handleToggleFavorite}>
                   <Heart className={audiobook.user_data?.is_favorite ? "fill-current" : ""} />
                 </Button>
                 {isCompleted ? (
@@ -749,7 +680,6 @@ export default function AudiobookDetailPage() {
                   label="Title"
                   id="title"
                   fieldState={editForm.title}
-                  onSourceChange={(s) => updateFieldSource("title", s)}
                   onLockToggle={() => toggleFieldLock("title")}
                   onCustomValueChange={(v) => updateFieldCustomValue("title", v)}
                   placeholder="Enter custom title"
@@ -759,7 +689,6 @@ export default function AudiobookDetailPage() {
                   label="Subtitle"
                   id="subtitle"
                   fieldState={editForm.subtitle}
-                  onSourceChange={(s) => updateFieldSource("subtitle", s)}
                   onLockToggle={() => toggleFieldLock("subtitle")}
                   onCustomValueChange={(v) => updateFieldCustomValue("subtitle", v)}
                   placeholder="Enter custom subtitle"
@@ -769,7 +698,6 @@ export default function AudiobookDetailPage() {
                   label="Author"
                   id="author"
                   fieldState={editForm.author}
-                  onSourceChange={(s) => updateFieldSource("author", s)}
                   onLockToggle={() => toggleFieldLock("author")}
                   onCustomValueChange={(v) => updateFieldCustomValue("author", v)}
                   placeholder="Enter custom author"
@@ -779,7 +707,6 @@ export default function AudiobookDetailPage() {
                   label="Narrator"
                   id="narrator"
                   fieldState={editForm.narrator}
-                  onSourceChange={(s) => updateFieldSource("narrator", s)}
                   onLockToggle={() => toggleFieldLock("narrator")}
                   onCustomValueChange={(v) => updateFieldCustomValue("narrator", v)}
                   placeholder="Enter custom narrator"
@@ -789,7 +716,6 @@ export default function AudiobookDetailPage() {
                   label="Series Name"
                   id="series_name"
                   fieldState={editForm.series_name}
-                  onSourceChange={(s) => updateFieldSource("series_name", s)}
                   onLockToggle={() => toggleFieldLock("series_name")}
                   onCustomValueChange={(v) => updateFieldCustomValue("series_name", v)}
                   placeholder="Enter series name"
@@ -799,7 +725,6 @@ export default function AudiobookDetailPage() {
                   label="Series Number"
                   id="series_position"
                   fieldState={editForm.series_position}
-                  onSourceChange={(s) => updateFieldSource("series_position", s)}
                   onLockToggle={() => toggleFieldLock("series_position")}
                   onCustomValueChange={(v) => updateFieldCustomValue("series_position", v)}
                   placeholder="Enter series number (e.g., 1, 2.5)"
@@ -809,7 +734,6 @@ export default function AudiobookDetailPage() {
                   label="Description"
                   id="description"
                   fieldState={editForm.description}
-                  onSourceChange={(s) => updateFieldSource("description", s)}
                   onLockToggle={() => toggleFieldLock("description")}
                   onCustomValueChange={(v) => updateFieldCustomValue("description", v)}
                   placeholder="Enter custom description"
@@ -1024,21 +948,40 @@ export default function AudiobookDetailPage() {
                       Custom Metadata
                     </h4>
                     <div className="text-xs text-muted-foreground">
-                      {audiobook?.custom_metadata?.overrides && Object.keys(audiobook.custom_metadata.overrides).length > 0 ? (
+                      {audiobook?.custom_metadata ? (
                         <ul className="space-y-1">
-                          {Object.entries(audiobook.custom_metadata.overrides).map(([field, override]) => {
-                            const displayValue = override.value || "(locked, no override value)";
-                            return (
-                              <li key={field}>
-                                <span className="font-medium capitalize">{field.replace(/_/g, ' ')}:</span>{" "}
-                                {displayValue}
-                                {override.locked && <Lock className="inline h-3 w-3 ml-1" />}
-                              </li>
-                            );
-                          })}
+                          {audiobook.custom_metadata.title && (
+                            <li><span className="font-medium">Title:</span> {audiobook.custom_metadata.title}</li>
+                          )}
+                          {audiobook.custom_metadata.subtitle && (
+                            <li><span className="font-medium">Subtitle:</span> {audiobook.custom_metadata.subtitle}</li>
+                          )}
+                          {audiobook.custom_metadata.author && (
+                            <li><span className="font-medium">Author:</span> {audiobook.custom_metadata.author}</li>
+                          )}
+                          {audiobook.custom_metadata.narrator && (
+                            <li><span className="font-medium">Narrator:</span> {audiobook.custom_metadata.narrator}</li>
+                          )}
+                          {audiobook.custom_metadata.description && (
+                            <li><span className="font-medium">Description:</span> {audiobook.custom_metadata.description.substring(0, 100)}...</li>
+                          )}
+                          {audiobook.custom_metadata.series_name && (
+                            <li><span className="font-medium">Series Name:</span> {audiobook.custom_metadata.series_name}</li>
+                          )}
+                          {audiobook.custom_metadata.series_sequence && (
+                            <li><span className="font-medium">Series Number:</span> {audiobook.custom_metadata.series_sequence}</li>
+                          )}
+                          {audiobook.custom_metadata.cover_url && (
+                            <li><span className="font-medium">Cover URL:</span> {audiobook.custom_metadata.cover_url.substring(0, 50)}...</li>
+                          )}
+                          {!audiobook.custom_metadata.title && !audiobook.custom_metadata.subtitle &&
+                           !audiobook.custom_metadata.author && !audiobook.custom_metadata.narrator &&
+                           !audiobook.custom_metadata.description && !audiobook.custom_metadata.series_name && (
+                            <p>No custom metadata set</p>
+                          )}
                         </ul>
                       ) : (
-                        <p>No manual overrides set</p>
+                        <p>No custom metadata set</p>
                       )}
                     </div>
                   </div>
@@ -1066,8 +1009,8 @@ export default function AudiobookDetailPage() {
                           {audiobook.agent_metadata.publisher && (
                             <li><span className="font-medium">Publisher:</span> {audiobook.agent_metadata.publisher}</li>
                           )}
-                          {audiobook.agent_metadata.published_date && (
-                            <li><span className="font-medium">Published:</span> {audiobook.agent_metadata.published_date}</li>
+                          {audiobook.agent_metadata.release_date && (
+                            <li><span className="font-medium">Published:</span> {audiobook.agent_metadata.release_date}</li>
                           )}
                           {audiobook.agent_metadata.description && (
                             <li><span className="font-medium">Description:</span> {audiobook.agent_metadata.description.substring(0, 100)}...</li>
@@ -1205,7 +1148,6 @@ function MetadataField({
   label,
   id,
   fieldState,
-  onSourceChange,
   onLockToggle,
   onCustomValueChange,
   placeholder,
@@ -1214,38 +1156,45 @@ function MetadataField({
   label: string;
   id: string;
   fieldState: FieldState;
-  onSourceChange: (source: Source) => void;
   onLockToggle: () => void;
   onCustomValueChange: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
 }) {
+  const isLocked = fieldState.locked;
+
   const getEffectiveValue = (): string => {
-    // Lock-to-value: locked fields always show custom value
     if (fieldState.locked) {
       return fieldState.customValue;
     }
-    // Unlocked: use cascade priority (custom → agent → file → empty)
-    return fieldState.customValue || fieldState.agentValue || fieldState.fileValue || "";
+    return fieldState.agentValue || fieldState.fileValue || "";
   };
 
-  const getSourceLabel = () => {
-    // Lock-to-value: show "Custom" when locked (value is frozen)
-    if (fieldState.locked) {
-      return "Custom (Locked)";
+  const getSourceInfo = () => {
+    if (isLocked) {
+      return { label: "Custom", variant: "default" as const };
     }
-    // Unlocked: show source based on priority
-    if (fieldState.customValue) return "Custom";
-    if (fieldState.agentValue) return "Agent";
-    if (fieldState.fileValue) return "File";
-    return "Custom"; // Default for empty
+    if (fieldState.agentValue) {
+      return { label: "from Audible", variant: "secondary" as const };
+    }
+    if (fieldState.fileValue) {
+      return { label: "from File Tags", variant: "secondary" as const };
+    }
+    return { label: "Empty", variant: "outline" as const };
   };
+
+  const sourceInfo = getSourceInfo();
 
   return (
     <div className="space-y-2">
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
+      <div className="flex items-center justify-between">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </label>
+        <Badge variant={sourceInfo.variant} className="text-xs">
+          {sourceInfo.label}
+        </Badge>
+      </div>
       <div className="flex gap-2 items-start">
         {multiline ? (
           <Textarea
@@ -1254,7 +1203,7 @@ function MetadataField({
             onChange={(e) => onCustomValueChange(e.target.value)}
             placeholder={placeholder}
             rows={4}
-            className="flex-1"
+            className={`flex-1 ${isLocked ? 'border-primary/50 bg-primary/5' : ''}`}
           />
         ) : (
           <Input
@@ -1262,34 +1211,22 @@ function MetadataField({
             value={getEffectiveValue()}
             onChange={(e) => onCustomValueChange(e.target.value)}
             placeholder={placeholder}
+            className={isLocked ? 'border-primary/50 bg-primary/5' : ''}
           />
         )}
-        <div className="flex gap-2 flex-shrink-0">
-          <Select value={fieldState.source} onValueChange={(v) => onSourceChange(v as Source)}>
-            <SelectTrigger className="w-[110px]">
-              <SelectValue>{getSourceLabel()}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="agent">Agent</SelectItem>
-              <SelectItem value="file">File</SelectItem>
-              <SelectItem value="custom">Custom</SelectItem>
-            </SelectContent>
-          </Select>
-          {/* Lock Toggle - always visible */}
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-10 w-10"
-            onClick={onLockToggle}
-          >
-            {fieldState.locked ? (
-              <Lock className="h-4 w-4 text-primary" />
-            ) : (
-              <LockOpen className="h-4 w-4 text-muted-foreground" />
-            )}
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-10 w-10 flex-shrink-0"
+          onClick={onLockToggle}
+        >
+          {isLocked ? (
+            <Lock className="h-4 w-4 text-primary" />
+          ) : (
+            <LockOpen className="h-4 w-4 text-muted-foreground" />
+          )}
+        </Button>
       </div>
     </div>
   );

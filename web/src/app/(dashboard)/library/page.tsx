@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { Headphones, Heart, Library as LibraryIcon, Search, User } from "lucide-react";
+import { Headphones, Heart, Library as LibraryIcon, Search, User, Grid3x3, Grid2x2, LayoutGrid } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,13 @@ import { LibrarySelector } from "@/components/layout/library-selector";
 
 type FilterStatus = "all" | "not-started" | "in-progress" | "completed" | "favorites";
 type SortOption = "recently-added" | "title-az" | "author-az" | "recently-played";
+type ViewMode = "small" | "medium" | "large";
+
+const VIEW_GRID_CLASSES = {
+  small: "grid gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10",
+  medium: "grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
+  large: "grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+};
 
 export default function LibraryPage() {
   const searchParams = useSearchParams();
@@ -31,6 +38,7 @@ export default function LibraryPage() {
   const [authorSearch, setAuthorSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [sortBy, setSortBy] = useState<SortOption>("recently-added");
+  const [viewMode, setViewMode] = useState<ViewMode>("medium");
   const { selectedLibraryId } = useLibraryContext();
 
   // Apply filter from URL on mount
@@ -238,6 +246,32 @@ export default function LibraryPage() {
                     <SelectItem value="recently-played">Recently Played</SelectItem>
                   </SelectContent>
                 </Select>
+                <div className="flex items-center gap-1 border border-border/40 rounded-lg p-1">
+                  <Button
+                    variant={viewMode === "small" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("small")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Grid3x3 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "medium" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("medium")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Grid2x2 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "large" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("large")}
+                    className="h-8 w-8 p-0"
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -261,7 +295,7 @@ export default function LibraryPage() {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                <div className={VIEW_GRID_CLASSES[viewMode]}>
                   {filteredAndSortedBooks.map((book) => (
                     <BookCard key={book.id} book={book} />
                   ))}
@@ -302,7 +336,7 @@ export default function LibraryPage() {
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto px-6 py-6">
-                  <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                  <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                     {seriesGroups.get(selectedSeries)?.books.map((book) => (
                       <BookCard key={book.id} book={book} />
                     ))}
@@ -543,7 +577,7 @@ function SeriesCard({ seriesName, seriesBooks, onSeriesClick }: { seriesName: st
       </div>
 
       {/* Books Grid */}
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
         {displayedBooks.map((book) => (
           <BookCard key={book.id} book={book} compact />
         ))}

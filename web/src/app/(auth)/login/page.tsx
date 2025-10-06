@@ -46,41 +46,87 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="glass-surface rounded-3xl border border-border/30 bg-card/80 p-8 shadow-card backdrop-blur-xl">
-      <div className="mb-6 text-center">
-        <p className="text-xs uppercase tracking-widest text-primary">Lore</p>
-        <h1 className="mt-3 text-3xl font-semibold text-foreground">Sign in to your library</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Stream your audiobooks anywhere, anytime.</p>
+    <div className="glass-surface rounded-3xl border border-border/30 bg-card/80 px-12 py-14 shadow-card backdrop-blur-xl">
+      {/* Header Section - Clear Visual Hierarchy */}
+      <div className="mb-10 text-center">
+        <div className="mb-8">
+          <p className="text-5xl font-bold uppercase tracking-wide text-primary">LORE</p>
+        </div>
+        <h1 className="text-2xl font-semibold leading-tight text-foreground">
+          Sign in to your library
+        </h1>
+        <p className="mt-3 text-base leading-relaxed text-muted-foreground">
+          Stream your audiobooks anywhere, anytime.
+        </p>
       </div>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        <div className="space-y-2">
-          <label htmlFor="username" className="text-sm font-medium text-foreground">
+
+      {/* Form Section - Generous Spacing */}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Username Field */}
+        <div className="space-y-2.5">
+          <label htmlFor="username" className="block text-sm font-medium text-foreground">
             Username
           </label>
-          <Input id="username" autoComplete="username" placeholder="Username" {...register("username")} />
-          {errors.username ? <p className="text-xs text-destructive">{errors.username.message}</p> : null}
+          <Input
+            id="username"
+            autoComplete="username"
+            placeholder="Username"
+            className="h-12 text-base"
+            {...register("username")}
+          />
+          {errors.username ? (
+            <p className="text-sm text-destructive">{errors.username.message}</p>
+          ) : null}
         </div>
-        <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium text-foreground">
+
+        {/* Password Field */}
+        <div className="space-y-2.5">
+          <label htmlFor="password" className="block text-sm font-medium text-foreground">
             Password
           </label>
-          <Input id="password" type="password" autoComplete="current-password" placeholder="••••••••" {...register("password")} />
-          {errors.password ? <p className="text-xs text-destructive">{errors.password.message}</p> : null}
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="••••••••"
+            className="h-12 text-base"
+            {...register("password")}
+          />
+          {errors.password ? (
+            <p className="text-sm text-destructive">{errors.password.message}</p>
+          ) : null}
         </div>
-        {formError ? <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
-        <Button type="submit" className="w-full" disabled={isSubmitting}>
+
+        {/* Error Message */}
+        {formError ? (
+          <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
+            {formError}
+          </div>
+        ) : null}
+
+        {/* Submit Button - Prominent CTA */}
+        <Button
+          type="submit"
+          className="h-12 w-full text-base font-medium"
+          disabled={isSubmitting}
+        >
           {isSubmitting ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              Signing in...
             </>
           ) : (
             "Sign in"
           )}
         </Button>
       </form>
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        Need an account? Contact your administrator.
-      </p>
+
+      {/* Help Text - Clear Separation */}
+      <div className="mt-8 border-t border-border/20 pt-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Need an account? Contact your administrator.
+        </p>
+      </div>
     </div>
   );
 }

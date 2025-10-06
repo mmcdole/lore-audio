@@ -87,11 +87,26 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
                m.cover_url, m.series_name, m.series_sequence, m.release_date, m.isbn, m.asin,
                m.language, m.publisher, m.duration_sec, m.rating, m.rating_count,
                m.genres, m.source, m.external_id, m.created_at, m.updated_at,
-               o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
+               c.audiobook_id,
+               c.title, c.title_locked,
+               c.subtitle, c.subtitle_locked,
+               c.author, c.author_locked,
+               c.narrator, c.narrator_locked,
+               c.description, c.description_locked,
+               c.cover_url, c.cover_url_locked,
+               c.series_name, c.series_name_locked,
+               c.series_sequence, c.series_sequence_locked,
+               c.release_date, c.release_date_locked,
+               c.isbn, c.isbn_locked,
+               c.asin, c.asin_locked,
+               c.language, c.language_locked,
+               c.publisher, c.publisher_locked,
+               c.genres, c.genres_locked,
+               c.updated_at, c.updated_by,
                u.user_id, u.progress_sec, u.is_favorite, u.last_played_at
         FROM audiobooks a
         LEFT JOIN audiobook_metadata_agent m ON m.id = a.metadata_id
-        LEFT JOIN audiobook_metadata_overrides o ON o.audiobook_id = a.id
+        LEFT JOIN audiobook_metadata_custom c ON c.audiobook_id = a.id
         LEFT JOIN user_audiobook_data u ON u.audiobook_id = a.id AND u.user_id = ?
         WHERE a.id = ?
     `, userID, id)
@@ -110,11 +125,17 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 	var userIDVal, lastPlayedAt sql.NullString
 	var progress sql.NullFloat64
 	var favorite sql.NullInt64
-	// Override fields
-	var overrideAudiobookID sql.NullString
-	var overridesJSON sql.NullString
-	var overrideUpdatedAt sql.NullString
-	var overrideUpdatedBy sql.NullString
+	// Custom metadata fields
+	var customAudiobookID sql.NullString
+	var customTitle, customSubtitle, customAuthor, customNarrator, customDescription, customCoverURL sql.NullString
+	var customSeriesName, customSeriesSequence, customReleaseDate, customISBN, customASIN sql.NullString
+	var customLanguage, customPublisher, customGenres sql.NullString
+	var customTitleLocked, customSubtitleLocked, customAuthorLocked, customNarratorLocked sql.NullInt64
+	var customDescriptionLocked, customCoverURLLocked, customSeriesNameLocked, customSeriesSequenceLocked sql.NullInt64
+	var customReleaseDateLocked, customISBNLocked, customASINLocked, customLanguageLocked sql.NullInt64
+	var customPublisherLocked, customGenresLocked sql.NullInt64
+	var customUpdatedAt sql.NullString
+	var customUpdatedBy sql.NullString
 
 	err := row.Scan(
 		&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
@@ -122,7 +143,22 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 		&coverURL, &seriesName, &seriesSequence, &releaseDate, &isbn, &asin,
 		&language, &publisher, &durationSec, &rating, &ratingCount,
 		&genres, &source, &externalID, &metaCreatedAt, &metaUpdatedAt,
-		&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
+		&customAudiobookID,
+		&customTitle, &customTitleLocked,
+		&customSubtitle, &customSubtitleLocked,
+		&customAuthor, &customAuthorLocked,
+		&customNarrator, &customNarratorLocked,
+		&customDescription, &customDescriptionLocked,
+		&customCoverURL, &customCoverURLLocked,
+		&customSeriesName, &customSeriesNameLocked,
+		&customSeriesSequence, &customSeriesSequenceLocked,
+		&customReleaseDate, &customReleaseDateLocked,
+		&customISBN, &customISBNLocked,
+		&customASIN, &customASINLocked,
+		&customLanguage, &customLanguageLocked,
+		&customPublisher, &customPublisherLocked,
+		&customGenres, &customGenresLocked,
+		&customUpdatedAt, &customUpdatedBy,
 		&userIDVal, &progress, &favorite, &lastPlayedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -178,15 +214,71 @@ func (r *Repository) GetAudiobook(ctx context.Context, id, userID string) (*mode
 		ab.Metadata = &metadata // Temporary, will be replaced by ResolveMetadata()
 	}
 
-	// Parse custom metadata (overrides) if they exist
-	if overrideAudiobookID.Valid && overridesJSON.Valid {
-		var custom models.CustomMetadata
-		custom.AudiobookID = overrideAudiobookID.String
-		if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
-			return nil, fmt.Errorf("failed to parse overrides JSON: %w", err)
+	// Populate custom metadata if it exists
+	if customAudiobookID.Valid {
+		custom := models.CustomMetadata{
+			AudiobookID:    customAudiobookID.String,
+			Title:          nullableString(customTitle),
+			Subtitle:       nullableString(customSubtitle),
+			Author:         nullableString(customAuthor),
+			Narrator:       nullableString(customNarrator),
+			Description:    nullableString(customDescription),
+			CoverURL:       nullableString(customCoverURL),
+			SeriesName:     nullableString(customSeriesName),
+			SeriesSequence: nullableString(customSeriesSequence),
+			ReleaseDate:    nullableString(customReleaseDate),
+			ISBN:           nullableString(customISBN),
+			ASIN:           nullableString(customASIN),
+			Language:       nullableString(customLanguage),
+			Publisher:      nullableString(customPublisher),
+			Genres:         nullableString(customGenres),
+			Locks:          make(map[string]bool),
+			UpdatedAt:      parseTime(customUpdatedAt.String),
+			UpdatedBy:      nullableString(customUpdatedBy),
 		}
-		custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
-		custom.UpdatedBy = nullableString(overrideUpdatedBy)
+		// Build locks map
+		if customTitleLocked.Valid && customTitleLocked.Int64 == 1 {
+			custom.Locks["title"] = true
+		}
+		if customSubtitleLocked.Valid && customSubtitleLocked.Int64 == 1 {
+			custom.Locks["subtitle"] = true
+		}
+		if customAuthorLocked.Valid && customAuthorLocked.Int64 == 1 {
+			custom.Locks["author"] = true
+		}
+		if customNarratorLocked.Valid && customNarratorLocked.Int64 == 1 {
+			custom.Locks["narrator"] = true
+		}
+		if customDescriptionLocked.Valid && customDescriptionLocked.Int64 == 1 {
+			custom.Locks["description"] = true
+		}
+		if customCoverURLLocked.Valid && customCoverURLLocked.Int64 == 1 {
+			custom.Locks["cover_url"] = true
+		}
+		if customSeriesNameLocked.Valid && customSeriesNameLocked.Int64 == 1 {
+			custom.Locks["series_name"] = true
+		}
+		if customSeriesSequenceLocked.Valid && customSeriesSequenceLocked.Int64 == 1 {
+			custom.Locks["series_sequence"] = true
+		}
+		if customReleaseDateLocked.Valid && customReleaseDateLocked.Int64 == 1 {
+			custom.Locks["release_date"] = true
+		}
+		if customISBNLocked.Valid && customISBNLocked.Int64 == 1 {
+			custom.Locks["isbn"] = true
+		}
+		if customASINLocked.Valid && customASINLocked.Int64 == 1 {
+			custom.Locks["asin"] = true
+		}
+		if customLanguageLocked.Valid && customLanguageLocked.Int64 == 1 {
+			custom.Locks["language"] = true
+		}
+		if customPublisherLocked.Valid && customPublisherLocked.Int64 == 1 {
+			custom.Locks["publisher"] = true
+		}
+		if customGenresLocked.Valid && customGenresLocked.Int64 == 1 {
+			custom.Locks["genres"] = true
+		}
 		ab.CustomMetadata = &custom
 	}
 
@@ -567,13 +659,28 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
 		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
-		       o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
+		       c.audiobook_id,
+		       c.title, c.title_locked,
+		       c.subtitle, c.subtitle_locked,
+		       c.author, c.author_locked,
+		       c.narrator, c.narrator_locked,
+		       c.description, c.description_locked,
+		       c.cover_url, c.cover_url_locked,
+		       c.series_name, c.series_name_locked,
+		       c.series_sequence, c.series_sequence_locked,
+		       c.release_date, c.release_date_locked,
+		       c.isbn, c.isbn_locked,
+		       c.asin, c.asin_locked,
+		       c.language, c.language_locked,
+		       c.publisher, c.publisher_locked,
+		       c.genres, c.genres_locked,
+		       c.updated_at, c.updated_by,
 		       u.user_id, u.progress_sec, u.is_favorite, u.last_played_at,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
 		FROM audiobooks a
 		LEFT JOIN audiobook_metadata_agent m ON m.id = a.metadata_id
-		LEFT JOIN audiobook_metadata_overrides o ON o.audiobook_id = a.id
+		LEFT JOIN audiobook_metadata_custom c ON c.audiobook_id = a.id
 		LEFT JOIN user_audiobook_data u ON u.audiobook_id = a.id AND u.user_id = ?
 		LEFT JOIN (
 			SELECT audiobook_id,
@@ -608,10 +715,16 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metadataID sql.NullString
 		var libraryID sql.NullString
-		var overrideAudiobookID sql.NullString
-		var overridesJSON sql.NullString
-		var overrideUpdatedAt sql.NullString
-		var overrideUpdatedBy sql.NullString
+		var customAudiobookID sql.NullString
+		var customTitle, customSubtitle, customAuthor, customNarrator, customDescription, customCoverURL sql.NullString
+		var customSeriesName, customSeriesSequence, customReleaseDate, customISBN, customASIN sql.NullString
+		var customLanguage, customPublisher, customGenres sql.NullString
+		var customTitleLocked, customSubtitleLocked, customAuthorLocked, customNarratorLocked sql.NullInt64
+		var customDescriptionLocked, customCoverURLLocked, customSeriesNameLocked, customSeriesSequenceLocked sql.NullInt64
+		var customReleaseDateLocked, customISBNLocked, customASINLocked, customLanguageLocked sql.NullInt64
+		var customPublisherLocked, customGenresLocked sql.NullInt64
+		var customUpdatedAt sql.NullString
+		var customUpdatedBy sql.NullString
 		var userIDVal, lastPlayedAt sql.NullString
 		var progress sql.NullFloat64
 		var favorite sql.NullInt64
@@ -622,7 +735,22 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 			&ab.ID, &libraryID, &metadataID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaID, &title, &subtitle, &author, &narrator, &description,
 			&coverURL, &seriesName, &seriesSequence, &releaseDate,
-			&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
+			&customAudiobookID,
+			&customTitle, &customTitleLocked,
+			&customSubtitle, &customSubtitleLocked,
+			&customAuthor, &customAuthorLocked,
+			&customNarrator, &customNarratorLocked,
+			&customDescription, &customDescriptionLocked,
+			&customCoverURL, &customCoverURLLocked,
+			&customSeriesName, &customSeriesNameLocked,
+			&customSeriesSequence, &customSeriesSequenceLocked,
+			&customReleaseDate, &customReleaseDateLocked,
+			&customISBN, &customISBNLocked,
+			&customASIN, &customASINLocked,
+			&customLanguage, &customLanguageLocked,
+			&customPublisher, &customPublisherLocked,
+			&customGenres, &customGenresLocked,
+			&customUpdatedAt, &customUpdatedBy,
 			&userIDVal, &progress, &favorite, &lastPlayedAt,
 			&fileCount, &totalDuration,
 		); err != nil {
@@ -652,15 +780,71 @@ func (r *Repository) ListAudiobooks(ctx context.Context, userID string, libraryI
 			}
 		}
 
-		// Parse custom metadata if it exists
-		if overrideAudiobookID.Valid && overridesJSON.Valid {
-			var custom models.CustomMetadata
-			custom.AudiobookID = overrideAudiobookID.String
-			if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
-				return nil, 0, fmt.Errorf("failed to parse overrides JSON: %w", err)
+		// Populate custom metadata if it exists
+		if customAudiobookID.Valid {
+			custom := models.CustomMetadata{
+				AudiobookID:    customAudiobookID.String,
+				Title:          nullableString(customTitle),
+				Subtitle:       nullableString(customSubtitle),
+				Author:         nullableString(customAuthor),
+				Narrator:       nullableString(customNarrator),
+				Description:    nullableString(customDescription),
+				CoverURL:       nullableString(customCoverURL),
+				SeriesName:     nullableString(customSeriesName),
+				SeriesSequence: nullableString(customSeriesSequence),
+				ReleaseDate:    nullableString(customReleaseDate),
+				ISBN:           nullableString(customISBN),
+				ASIN:           nullableString(customASIN),
+				Language:       nullableString(customLanguage),
+				Publisher:      nullableString(customPublisher),
+				Genres:         nullableString(customGenres),
+				Locks:          make(map[string]bool),
+				UpdatedAt:      parseTime(customUpdatedAt.String),
+				UpdatedBy:      nullableString(customUpdatedBy),
 			}
-			custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
-			custom.UpdatedBy = nullableString(overrideUpdatedBy)
+			// Build locks map
+			if customTitleLocked.Valid && customTitleLocked.Int64 == 1 {
+				custom.Locks["title"] = true
+			}
+			if customSubtitleLocked.Valid && customSubtitleLocked.Int64 == 1 {
+				custom.Locks["subtitle"] = true
+			}
+			if customAuthorLocked.Valid && customAuthorLocked.Int64 == 1 {
+				custom.Locks["author"] = true
+			}
+			if customNarratorLocked.Valid && customNarratorLocked.Int64 == 1 {
+				custom.Locks["narrator"] = true
+			}
+			if customDescriptionLocked.Valid && customDescriptionLocked.Int64 == 1 {
+				custom.Locks["description"] = true
+			}
+			if customCoverURLLocked.Valid && customCoverURLLocked.Int64 == 1 {
+				custom.Locks["cover_url"] = true
+			}
+			if customSeriesNameLocked.Valid && customSeriesNameLocked.Int64 == 1 {
+				custom.Locks["series_name"] = true
+			}
+			if customSeriesSequenceLocked.Valid && customSeriesSequenceLocked.Int64 == 1 {
+				custom.Locks["series_sequence"] = true
+			}
+			if customReleaseDateLocked.Valid && customReleaseDateLocked.Int64 == 1 {
+				custom.Locks["release_date"] = true
+			}
+			if customISBNLocked.Valid && customISBNLocked.Int64 == 1 {
+				custom.Locks["isbn"] = true
+			}
+			if customASINLocked.Valid && customASINLocked.Int64 == 1 {
+				custom.Locks["asin"] = true
+			}
+			if customLanguageLocked.Valid && customLanguageLocked.Int64 == 1 {
+				custom.Locks["language"] = true
+			}
+			if customPublisherLocked.Valid && customPublisherLocked.Int64 == 1 {
+				custom.Locks["publisher"] = true
+			}
+			if customGenresLocked.Valid && customGenresLocked.Int64 == 1 {
+				custom.Locks["genres"] = true
+			}
 			ab.CustomMetadata = &custom
 		}
 
@@ -769,12 +953,27 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 		SELECT a.id, a.library_id, a.metadata_id, a.asset_path, a.library_path_id, a.created_at, a.updated_at,
 		       m.id, m.title, m.subtitle, m.author, m.narrator, m.description,
 		       m.cover_url, m.series_name, m.series_sequence, m.release_date,
-		       o.audiobook_id, o.overrides, o.updated_at, o.updated_by,
+		       c.audiobook_id,
+		       c.title, c.title_locked,
+		       c.subtitle, c.subtitle_locked,
+		       c.author, c.author_locked,
+		       c.narrator, c.narrator_locked,
+		       c.description, c.description_locked,
+		       c.cover_url, c.cover_url_locked,
+		       c.series_name, c.series_name_locked,
+		       c.series_sequence, c.series_sequence_locked,
+		       c.release_date, c.release_date_locked,
+		       c.isbn, c.isbn_locked,
+		       c.asin, c.asin_locked,
+		       c.language, c.language_locked,
+		       c.publisher, c.publisher_locked,
+		       c.genres, c.genres_locked,
+		       c.updated_at, c.updated_by,
 		       COALESCE(mf_stats.file_count, 0) as file_count,
 		       COALESCE(mf_stats.total_duration, 0) as total_duration_sec
 		FROM audiobooks a
 		LEFT JOIN audiobook_metadata_agent m ON m.id = a.metadata_id
-		LEFT JOIN audiobook_metadata_overrides o ON o.audiobook_id = a.id
+		LEFT JOIN audiobook_metadata_custom c ON c.audiobook_id = a.id
 		LEFT JOIN (
 			SELECT audiobook_id,
 			       COUNT(*) as file_count,
@@ -809,10 +1008,16 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 		var subtitle, narrator, description, coverURL, seriesName, seriesSequence, releaseDate sql.NullString
 		var metaID sql.NullString
 		var libraryID sql.NullString
-		var overrideAudiobookID sql.NullString
-		var overridesJSON sql.NullString
-		var overrideUpdatedAt sql.NullString
-		var overrideUpdatedBy sql.NullString
+		var customAudiobookID sql.NullString
+		var customTitle, customSubtitle, customAuthor, customNarrator, customDescription sql.NullString
+		var customCoverURL, customSeriesName, customSeriesSequence, customReleaseDate sql.NullString
+		var customISBN, customASIN, customLanguage, customPublisher, customGenres sql.NullString
+		var customTitleLocked, customSubtitleLocked, customAuthorLocked, customNarratorLocked sql.NullInt64
+		var customDescriptionLocked, customCoverURLLocked, customSeriesNameLocked, customSeriesSequenceLocked sql.NullInt64
+		var customReleaseDateLocked, customISBNLocked, customASINLocked, customLanguageLocked sql.NullInt64
+		var customPublisherLocked, customGenresLocked sql.NullInt64
+		var customUpdatedAt sql.NullString
+		var customUpdatedBy sql.NullString
 		var fileCount int
 		var totalDuration float64
 
@@ -820,7 +1025,22 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 			&ab.ID, &libraryID, &metaID, &ab.AssetPath, &ab.LibraryPathID, &createdAt, &updatedAt,
 			&metaRow.ID, &metaRow.Title, &subtitle, &metaRow.Author, &narrator, &description,
 			&coverURL, &seriesName, &seriesSequence, &releaseDate,
-			&overrideAudiobookID, &overridesJSON, &overrideUpdatedAt, &overrideUpdatedBy,
+			&customAudiobookID,
+			&customTitle, &customTitleLocked,
+			&customSubtitle, &customSubtitleLocked,
+			&customAuthor, &customAuthorLocked,
+			&customNarrator, &customNarratorLocked,
+			&customDescription, &customDescriptionLocked,
+			&customCoverURL, &customCoverURLLocked,
+			&customSeriesName, &customSeriesNameLocked,
+			&customSeriesSequence, &customSeriesSequenceLocked,
+			&customReleaseDate, &customReleaseDateLocked,
+			&customISBN, &customISBNLocked,
+			&customASIN, &customASINLocked,
+			&customLanguage, &customLanguageLocked,
+			&customPublisher, &customPublisherLocked,
+			&customGenres, &customGenresLocked,
+			&customUpdatedAt, &customUpdatedBy,
 			&fileCount, &totalDuration,
 		)
 		if err != nil {
@@ -860,15 +1080,71 @@ func (r *Repository) SearchAudiobooks(ctx context.Context, userID, query string,
 			}
 		}
 
-		// Parse custom metadata if it exists
-		if overrideAudiobookID.Valid && overridesJSON.Valid {
-			var custom models.CustomMetadata
-			custom.AudiobookID = overrideAudiobookID.String
-			if err := json.Unmarshal([]byte(overridesJSON.String), &custom.Overrides); err != nil {
-				return nil, 0, fmt.Errorf("failed to parse overrides JSON: %w", err)
+		// Populate custom metadata if it exists
+		if customAudiobookID.Valid {
+			custom := models.CustomMetadata{
+				AudiobookID:    customAudiobookID.String,
+				Title:          nullableString(customTitle),
+				Subtitle:       nullableString(customSubtitle),
+				Author:         nullableString(customAuthor),
+				Narrator:       nullableString(customNarrator),
+				Description:    nullableString(customDescription),
+				CoverURL:       nullableString(customCoverURL),
+				SeriesName:     nullableString(customSeriesName),
+				SeriesSequence: nullableString(customSeriesSequence),
+				ReleaseDate:    nullableString(customReleaseDate),
+				ISBN:           nullableString(customISBN),
+				ASIN:           nullableString(customASIN),
+				Language:       nullableString(customLanguage),
+				Publisher:      nullableString(customPublisher),
+				Genres:         nullableString(customGenres),
+				Locks:          make(map[string]bool),
+				UpdatedAt:      parseTime(customUpdatedAt.String),
+				UpdatedBy:      nullableString(customUpdatedBy),
 			}
-			custom.UpdatedAt = parseTime(overrideUpdatedAt.String)
-			custom.UpdatedBy = nullableString(overrideUpdatedBy)
+			// Build locks map
+			if customTitleLocked.Valid && customTitleLocked.Int64 == 1 {
+				custom.Locks["title"] = true
+			}
+			if customSubtitleLocked.Valid && customSubtitleLocked.Int64 == 1 {
+				custom.Locks["subtitle"] = true
+			}
+			if customAuthorLocked.Valid && customAuthorLocked.Int64 == 1 {
+				custom.Locks["author"] = true
+			}
+			if customNarratorLocked.Valid && customNarratorLocked.Int64 == 1 {
+				custom.Locks["narrator"] = true
+			}
+			if customDescriptionLocked.Valid && customDescriptionLocked.Int64 == 1 {
+				custom.Locks["description"] = true
+			}
+			if customCoverURLLocked.Valid && customCoverURLLocked.Int64 == 1 {
+				custom.Locks["cover_url"] = true
+			}
+			if customSeriesNameLocked.Valid && customSeriesNameLocked.Int64 == 1 {
+				custom.Locks["series_name"] = true
+			}
+			if customSeriesSequenceLocked.Valid && customSeriesSequenceLocked.Int64 == 1 {
+				custom.Locks["series_sequence"] = true
+			}
+			if customReleaseDateLocked.Valid && customReleaseDateLocked.Int64 == 1 {
+				custom.Locks["release_date"] = true
+			}
+			if customISBNLocked.Valid && customISBNLocked.Int64 == 1 {
+				custom.Locks["isbn"] = true
+			}
+			if customASINLocked.Valid && customASINLocked.Int64 == 1 {
+				custom.Locks["asin"] = true
+			}
+			if customLanguageLocked.Valid && customLanguageLocked.Int64 == 1 {
+				custom.Locks["language"] = true
+			}
+			if customPublisherLocked.Valid && customPublisherLocked.Int64 == 1 {
+				custom.Locks["publisher"] = true
+			}
+			if customGenresLocked.Valid && customGenresLocked.Int64 == 1 {
+				custom.Locks["genres"] = true
+			}
 			ab.CustomMetadata = &custom
 		}
 
@@ -2033,15 +2309,52 @@ func (r *Repository) GetUserFavorites(ctx context.Context, userID string, librar
 // GetMetadataOverrides retrieves manual metadata overrides for an audiobook.
 func (r *Repository) GetMetadataOverrides(ctx context.Context, audiobookID string) (*models.CustomMetadata, error) {
 	var custom models.CustomMetadata
-	var overridesJSON string
+	var title, subtitle, author, narrator, description, coverURL sql.NullString
+	var seriesName, seriesSequence, releaseDate, isbn, asin sql.NullString
+	var language, publisher, genres sql.NullString
+	var titleLocked, subtitleLocked, authorLocked, narratorLocked, descriptionLocked int
+	var coverURLLocked, seriesNameLocked, seriesSequenceLocked, releaseDateLocked int
+	var isbnLocked, asinLocked, languageLocked, publisherLocked, genresLocked int
 	var updatedAt string
 	var updatedBy sql.NullString
 
 	err := r.db.QueryRowContext(ctx, `
-		SELECT audiobook_id, overrides, updated_at, updated_by
-		FROM audiobook_metadata_overrides
+		SELECT audiobook_id,
+		       title, title_locked,
+		       subtitle, subtitle_locked,
+		       author, author_locked,
+		       narrator, narrator_locked,
+		       description, description_locked,
+		       cover_url, cover_url_locked,
+		       series_name, series_name_locked,
+		       series_sequence, series_sequence_locked,
+		       release_date, release_date_locked,
+		       isbn, isbn_locked,
+		       asin, asin_locked,
+		       language, language_locked,
+		       publisher, publisher_locked,
+		       genres, genres_locked,
+		       updated_at, updated_by
+		FROM audiobook_metadata_custom
 		WHERE audiobook_id = ?
-	`, audiobookID).Scan(&custom.AudiobookID, &overridesJSON, &updatedAt, &updatedBy)
+	`, audiobookID).Scan(
+		&custom.AudiobookID,
+		&title, &titleLocked,
+		&subtitle, &subtitleLocked,
+		&author, &authorLocked,
+		&narrator, &narratorLocked,
+		&description, &descriptionLocked,
+		&coverURL, &coverURLLocked,
+		&seriesName, &seriesNameLocked,
+		&seriesSequence, &seriesSequenceLocked,
+		&releaseDate, &releaseDateLocked,
+		&isbn, &isbnLocked,
+		&asin, &asinLocked,
+		&language, &languageLocked,
+		&publisher, &publisherLocked,
+		&genres, &genresLocked,
+		&updatedAt, &updatedBy,
+	)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil // No custom metadata exists
@@ -2050,35 +2363,167 @@ func (r *Repository) GetMetadataOverrides(ctx context.Context, audiobookID strin
 		return nil, err
 	}
 
-	// Parse JSON overrides
-	if err := json.Unmarshal([]byte(overridesJSON), &custom.Overrides); err != nil {
-		return nil, fmt.Errorf("failed to parse overrides JSON: %w", err)
-	}
-
+	// Populate struct fields
+	custom.Title = nullableString(title)
+	custom.Subtitle = nullableString(subtitle)
+	custom.Author = nullableString(author)
+	custom.Narrator = nullableString(narrator)
+	custom.Description = nullableString(description)
+	custom.CoverURL = nullableString(coverURL)
+	custom.SeriesName = nullableString(seriesName)
+	custom.SeriesSequence = nullableString(seriesSequence)
+	custom.ReleaseDate = nullableString(releaseDate)
+	custom.ISBN = nullableString(isbn)
+	custom.ASIN = nullableString(asin)
+	custom.Language = nullableString(language)
+	custom.Publisher = nullableString(publisher)
+	custom.Genres = nullableString(genres)
 	custom.UpdatedAt = parseTime(updatedAt)
 	custom.UpdatedBy = nullableString(updatedBy)
+
+	// Build locks map
+	custom.Locks = make(map[string]bool)
+	if titleLocked == 1 {
+		custom.Locks["title"] = true
+	}
+	if subtitleLocked == 1 {
+		custom.Locks["subtitle"] = true
+	}
+	if authorLocked == 1 {
+		custom.Locks["author"] = true
+	}
+	if narratorLocked == 1 {
+		custom.Locks["narrator"] = true
+	}
+	if descriptionLocked == 1 {
+		custom.Locks["description"] = true
+	}
+	if coverURLLocked == 1 {
+		custom.Locks["cover_url"] = true
+	}
+	if seriesNameLocked == 1 {
+		custom.Locks["series_name"] = true
+	}
+	if seriesSequenceLocked == 1 {
+		custom.Locks["series_sequence"] = true
+	}
+	if releaseDateLocked == 1 {
+		custom.Locks["release_date"] = true
+	}
+	if isbnLocked == 1 {
+		custom.Locks["isbn"] = true
+	}
+	if asinLocked == 1 {
+		custom.Locks["asin"] = true
+	}
+	if languageLocked == 1 {
+		custom.Locks["language"] = true
+	}
+	if publisherLocked == 1 {
+		custom.Locks["publisher"] = true
+	}
+	if genresLocked == 1 {
+		custom.Locks["genres"] = true
+	}
 
 	return &custom, nil
 }
 
 // SaveMetadataOverrides saves or updates manual metadata overrides.
 func (r *Repository) SaveMetadataOverrides(ctx context.Context, custom *models.CustomMetadata) error {
-	// Marshal overrides to JSON
-	overridesJSON, err := json.Marshal(custom.Overrides)
-	if err != nil {
-		return fmt.Errorf("failed to marshal overrides: %w", err)
-	}
-
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = r.db.ExecContext(ctx, `
-		INSERT INTO audiobook_metadata_overrides (audiobook_id, overrides, updated_at, updated_by)
-		VALUES (?, ?, ?, ?)
+	// Helper function to convert bool to int for SQLite
+	boolToInt := func(b bool) int {
+		if b {
+			return 1
+		}
+		return 0
+	}
+
+	// Get locked flags from map, defaulting to false if not present
+	titleLocked := boolToInt(custom.Locks["title"])
+	subtitleLocked := boolToInt(custom.Locks["subtitle"])
+	authorLocked := boolToInt(custom.Locks["author"])
+	narratorLocked := boolToInt(custom.Locks["narrator"])
+	descriptionLocked := boolToInt(custom.Locks["description"])
+	coverURLLocked := boolToInt(custom.Locks["cover_url"])
+	seriesNameLocked := boolToInt(custom.Locks["series_name"])
+	seriesSequenceLocked := boolToInt(custom.Locks["series_sequence"])
+	releaseDateLocked := boolToInt(custom.Locks["release_date"])
+	isbnLocked := boolToInt(custom.Locks["isbn"])
+	asinLocked := boolToInt(custom.Locks["asin"])
+	languageLocked := boolToInt(custom.Locks["language"])
+	publisherLocked := boolToInt(custom.Locks["publisher"])
+	genresLocked := boolToInt(custom.Locks["genres"])
+
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO audiobook_metadata_custom (
+			audiobook_id,
+			title, title_locked,
+			subtitle, subtitle_locked,
+			author, author_locked,
+			narrator, narrator_locked,
+			description, description_locked,
+			cover_url, cover_url_locked,
+			series_name, series_name_locked,
+			series_sequence, series_sequence_locked,
+			release_date, release_date_locked,
+			isbn, isbn_locked,
+			asin, asin_locked,
+			language, language_locked,
+			publisher, publisher_locked,
+			genres, genres_locked,
+			updated_at, updated_by
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(audiobook_id) DO UPDATE SET
-			overrides = excluded.overrides,
+			title = excluded.title,
+			title_locked = excluded.title_locked,
+			subtitle = excluded.subtitle,
+			subtitle_locked = excluded.subtitle_locked,
+			author = excluded.author,
+			author_locked = excluded.author_locked,
+			narrator = excluded.narrator,
+			narrator_locked = excluded.narrator_locked,
+			description = excluded.description,
+			description_locked = excluded.description_locked,
+			cover_url = excluded.cover_url,
+			cover_url_locked = excluded.cover_url_locked,
+			series_name = excluded.series_name,
+			series_name_locked = excluded.series_name_locked,
+			series_sequence = excluded.series_sequence,
+			series_sequence_locked = excluded.series_sequence_locked,
+			release_date = excluded.release_date,
+			release_date_locked = excluded.release_date_locked,
+			isbn = excluded.isbn,
+			isbn_locked = excluded.isbn_locked,
+			asin = excluded.asin,
+			asin_locked = excluded.asin_locked,
+			language = excluded.language,
+			language_locked = excluded.language_locked,
+			publisher = excluded.publisher,
+			publisher_locked = excluded.publisher_locked,
+			genres = excluded.genres,
+			genres_locked = excluded.genres_locked,
 			updated_at = excluded.updated_at,
 			updated_by = excluded.updated_by
-	`, custom.AudiobookID, string(overridesJSON), now, custom.UpdatedBy)
+	`, custom.AudiobookID,
+		custom.Title, titleLocked,
+		custom.Subtitle, subtitleLocked,
+		custom.Author, authorLocked,
+		custom.Narrator, narratorLocked,
+		custom.Description, descriptionLocked,
+		custom.CoverURL, coverURLLocked,
+		custom.SeriesName, seriesNameLocked,
+		custom.SeriesSequence, seriesSequenceLocked,
+		custom.ReleaseDate, releaseDateLocked,
+		custom.ISBN, isbnLocked,
+		custom.ASIN, asinLocked,
+		custom.Language, languageLocked,
+		custom.Publisher, publisherLocked,
+		custom.Genres, genresLocked,
+		now, custom.UpdatedBy)
 
 	return err
 }
@@ -2086,7 +2531,7 @@ func (r *Repository) SaveMetadataOverrides(ctx context.Context, custom *models.C
 // DeleteMetadataOverrides removes all manual overrides for an audiobook.
 func (r *Repository) DeleteMetadataOverrides(ctx context.Context, audiobookID string) error {
 	_, err := r.db.ExecContext(ctx, `
-		DELETE FROM audiobook_metadata_overrides
+		DELETE FROM audiobook_metadata_custom
 		WHERE audiobook_id = ?
 	`, audiobookID)
 	return err

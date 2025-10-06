@@ -113,17 +113,48 @@ CREATE TABLE IF NOT EXISTS audiobook_metadata_embedded (
     FOREIGN KEY (audiobook_id) REFERENCES audiobooks(id) ON DELETE CASCADE
 );
 
--- Manual metadata overrides with field-level locking (1:1 with audiobook)
-CREATE TABLE IF NOT EXISTS audiobook_metadata_overrides (
+-- Custom metadata (1:1 with audiobook) - user manual edits
+-- Each field has a corresponding _locked flag:
+-- locked=1, value="foo" → locked to "foo"
+-- locked=1, value=NULL → locked to empty (overrides cascade)
+-- locked=0 → unlocked (uses cascade: agent → file → parsed)
+CREATE TABLE IF NOT EXISTS audiobook_metadata_custom (
     audiobook_id TEXT PRIMARY KEY,
-    overrides TEXT NOT NULL,           -- JSON: {"field": {"value": "...", "locked": true}}
+    title TEXT NULL,
+    title_locked INTEGER NOT NULL DEFAULT 0,
+    subtitle TEXT NULL,
+    subtitle_locked INTEGER NOT NULL DEFAULT 0,
+    author TEXT NULL,
+    author_locked INTEGER NOT NULL DEFAULT 0,
+    narrator TEXT NULL,
+    narrator_locked INTEGER NOT NULL DEFAULT 0,
+    description TEXT NULL,
+    description_locked INTEGER NOT NULL DEFAULT 0,
+    cover_url TEXT NULL,
+    cover_url_locked INTEGER NOT NULL DEFAULT 0,
+    series_name TEXT NULL,
+    series_name_locked INTEGER NOT NULL DEFAULT 0,
+    series_sequence TEXT NULL,
+    series_sequence_locked INTEGER NOT NULL DEFAULT 0,
+    release_date TEXT NULL,
+    release_date_locked INTEGER NOT NULL DEFAULT 0,
+    isbn TEXT NULL,
+    isbn_locked INTEGER NOT NULL DEFAULT 0,
+    asin TEXT NULL,
+    asin_locked INTEGER NOT NULL DEFAULT 0,
+    language TEXT NULL,
+    language_locked INTEGER NOT NULL DEFAULT 0,
+    publisher TEXT NULL,
+    publisher_locked INTEGER NOT NULL DEFAULT 0,
+    genres TEXT NULL,
+    genres_locked INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     updated_by TEXT NULL,
     FOREIGN KEY (audiobook_id) REFERENCES audiobooks(id) ON DELETE CASCADE,
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_metadata_overrides_user ON audiobook_metadata_overrides(updated_by);
+CREATE INDEX IF NOT EXISTS idx_metadata_custom_user ON audiobook_metadata_custom(updated_by);
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

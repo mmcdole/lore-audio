@@ -76,8 +76,18 @@ export interface BookMetadata {
   series_name?: string | null;
   series_sequence?: string | null;
   release_date?: string | null;
-  source?: string;
+  isbn?: string | null;
+  asin?: string | null;
+  language?: string | null;
+  publisher?: string | null;
+  duration_sec?: number | null;
+  rating?: number | null;
+  rating_count?: number | null;
+  genres?: string | null;
+  source: string;
   external_id?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EmbeddedMetadata {
@@ -95,14 +105,23 @@ export interface EmbeddedMetadata {
   extracted_at: string;
 }
 
-export interface FieldOverride {
-  value?: string | null;
-  locked: boolean;
-}
-
 export interface CustomMetadata {
   audiobook_id: string;
-  overrides: Record<string, FieldOverride>;
+  title?: string | null;
+  subtitle?: string | null;
+  author?: string | null;
+  narrator?: string | null;
+  description?: string | null;
+  cover_url?: string | null;
+  series_name?: string | null;
+  series_sequence?: string | null;
+  release_date?: string | null;
+  isbn?: string | null;
+  asin?: string | null;
+  language?: string | null;
+  publisher?: string | null;
+  genres?: string | null;
+  locks?: Record<string, boolean>;
   updated_at: string;
   updated_by?: string | null;
 }

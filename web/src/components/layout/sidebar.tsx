@@ -12,6 +12,8 @@ import {
   BookOpen,
   Download,
   Link as LinkIcon,
+  User,
+  BookMarked,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -28,6 +30,8 @@ const PRIMARY_LINKS: SidebarLink[] = [
   { name: "Home", href: "/home", icon: Home },
   { name: "Favorites", href: "/favorites", icon: Heart },
   { name: "Browse", href: "/library", icon: Library },
+  { name: "Series", href: "/series", icon: BookMarked },
+  { name: "Authors", href: "/authors", icon: User },
 ];
 
 const SECONDARY_LINKS: SidebarLink[] = [
@@ -73,7 +77,7 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-full w-64 flex-col border-r border-border/40 bg-gradient-to-b from-background/95 to-background/60 px-4 pb-6 pt-8 lg:flex">
-      <div className="mb-8 px-1">
+      <div className="mb-8 px-1 text-center">
         <h1 className="text-4xl font-black tracking-[0.5em] text-primary uppercase">
           LORE
         </h1>

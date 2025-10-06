@@ -98,7 +98,7 @@ export default function SearchPage() {
                   </p>
                   <div className="flex items-center justify-between">
                     <span>Files</span>
-                    <span>{book.stats?.file_count ?? 0}</span>
+                    <span>{book.file_count ?? 0}</span>
                   </div>
                 </CardContent>
                 <Button

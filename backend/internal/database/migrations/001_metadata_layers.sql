@@ -50,9 +50,10 @@ CREATE TABLE IF NOT EXISTS audiobook_metadata_embedded (
 );
 
 -- Step 5: Create metadata overrides table
+-- Presence of field in overrides = locked/frozen custom value
 CREATE TABLE IF NOT EXISTS audiobook_metadata_overrides (
     audiobook_id TEXT PRIMARY KEY,
-    overrides TEXT NOT NULL,           -- JSON: {"field": {"value": "...", "locked": true}}
+    overrides TEXT NOT NULL,           -- JSON: {"field": {"value": "..."}}
     updated_at TEXT NOT NULL,
     updated_by TEXT NULL,
     FOREIGN KEY (audiobook_id) REFERENCES audiobooks(id) ON DELETE CASCADE,

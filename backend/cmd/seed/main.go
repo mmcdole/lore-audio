@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
 
-	_ "github.com/mattn/go-sqlite3"
-
+	"github.com/lore/backend/internal/database"
 	"github.com/lore/backend/internal/testdata"
 )
 
@@ -18,20 +16,15 @@ func main() {
 	// Get database path from environment or use default
 	dbPath := os.Getenv("DATABASE_PATH")
 	if dbPath == "" {
-		dbPath = "data/flix_audio.db"
+		dbPath = "data/lore.db"
 	}
 
-	// Open database
-	db, err := sql.Open("sqlite3", dbPath)
+	// Open database (applies schema automatically)
+	db, err := database.Open(dbPath)
 	if err != nil {
 		log.Fatalf("❌ Failed to open database: %v", err)
 	}
 	defer db.Close()
-
-	// Enable foreign keys
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		log.Fatalf("❌ Failed to enable foreign keys: %v", err)
-	}
 
 	// Seed test data
 	ctx := context.Background()

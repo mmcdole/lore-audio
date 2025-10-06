@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useLibraryContext } from "@/providers/library-provider";
 import { useFavoritesQuery } from "@/lib/api/hooks";
-import { Heart, Library as LibraryIcon, Search } from "lucide-react";
+import { Heart, Library as LibraryIcon, Search, Grid3x3, Grid2x2, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,13 @@ import {
 
 type FilterStatus = "all" | "in-progress" | "completed";
 type SortOption = "recently-added" | "title-az" | "author-az" | "recently-played";
+type ViewMode = "small" | "medium" | "large";
+
+const VIEW_GRID_CLASSES = {
+  small: "grid gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10",
+  medium: "grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
+  large: "grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+};
 
 export default function FavoritesPage() {
   const { selectedLibraryId } = useLibraryContext();
@@ -24,6 +31,7 @@ export default function FavoritesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [sortBy, setSortBy] = useState<SortOption>("recently-added");
+  const [viewMode, setViewMode] = useState<ViewMode>("medium");
 
   const favorites = data?.data ?? [];
 
@@ -125,7 +133,7 @@ export default function FavoritesPage() {
             <p className="text-sm text-muted-foreground">
               {isEmpty
                 ? "No favorites yet"
-                : `${data.meta.total} ${data.meta.total === 1 ? "book" : "books"}`}
+                : `${data?.meta.total ?? 0} ${data?.meta.total === 1 ? "book" : "books"}`}
             </p>
           </div>
         </div>
@@ -165,6 +173,32 @@ export default function FavoritesPage() {
                 <SelectItem value="recently-played">Recently Played</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex items-center gap-1 border border-border/40 rounded-lg p-1">
+              <Button
+                variant={viewMode === "small" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("small")}
+                className="h-8 w-8 p-0"
+              >
+                <Grid3x3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "medium" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("medium")}
+                className="h-8 w-8 p-0"
+              >
+                <Grid2x2 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "large" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("large")}
+                className="h-8 w-8 p-0"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -211,7 +245,7 @@ export default function FavoritesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className={VIEW_GRID_CLASSES[viewMode]}>
             {filteredAndSortedFavorites.map((audiobook) => (
               <div
                 key={audiobook.id}

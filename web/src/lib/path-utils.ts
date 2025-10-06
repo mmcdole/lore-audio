@@ -20,7 +20,7 @@ export async function getFilesystemRoots(): Promise<FilesystemRoots> {
     }
     const data = await response.json();
     cachedRoots = data.data;
-    return cachedRoots;
+    return cachedRoots!;
   } catch (error) {
     console.error('Error fetching filesystem roots:', error);
     // Fallback to hardcoded values if API fails

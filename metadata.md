@@ -4,6 +4,32 @@ This document outlines a comprehensive refactor of the 3-tier metadata system to
 
 ---
 
+## IMPLEMENTED: Simplified Lock Semantics (2025-10-05)
+
+**Decision**: No separate "locked" field. Presence in custom table = locked/frozen value.
+
+### Final Approach
+- **Custom table has explicit columns** (no JSON blob)
+- **Presence = locked**: Field has a value in custom table → frozen, won't update from agent/file
+- **Absence = unlocked**: Field is NULL in custom table → uses cascade (agent → file → parsed)
+- **No lock boolean anywhere**: Lock state is derived from presence
+
+### Implementation Status
+- ✅ **Frontend**: Source dropdown removed, lock button only control
+- ✅ **Backend Model**: `FieldOverride` simplified to just `{value: string}`
+- ✅ **Handler**: Presence-based logic (empty value = delete from overrides)
+- ✅ **ResolveMetadata**: Checks value presence only
+- 🚧 **Database**: Moving from JSON blob to explicit columns (in progress)
+
+### User Flow
+1. User sees field showing agent metadata
+2. Click lock → snapshots to custom table
+3. Field now shows custom value (frozen)
+4. Click unlock → clears custom value, reverts to cascade
+5. Typing → sets custom value (locked on save)
+
+---
+
 ## Current System Analysis
 
 ### Architecture

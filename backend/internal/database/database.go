@@ -50,10 +50,7 @@ func ensureDir(path string) error {
 }
 
 func applySchema(db *sql.DB) error {
-	if err := ensureColumn(db, "audiobooks", "library_id", "library_id TEXT NULL"); err != nil {
-		return err
-	}
-
+	// Apply schema first (creates tables if they don't exist)
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
 		return err
@@ -61,6 +58,12 @@ func applySchema(db *sql.DB) error {
 	if _, err := db.Exec(string(schema)); err != nil {
 		return err
 	}
+
+	// Then ensure columns exist (for migrations on existing databases)
+	if err := ensureColumn(db, "audiobooks", "library_id", "library_id TEXT NULL"); err != nil {
+		return err
+	}
+
 	return nil
 }
 

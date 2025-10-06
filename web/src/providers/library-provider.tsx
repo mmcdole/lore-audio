@@ -16,7 +16,7 @@ interface LibraryContextValue {
   libraries: Library[];
   isLoading: boolean;
   selectedLibraryId: string | null;
-  setSelectedLibraryId: (id: string) => void;
+  setSelectedLibraryId: (id: string | null) => void;
 }
 
 const LibraryContext = createContext<LibraryContextValue | undefined>(

@@ -17,7 +17,9 @@ export default function HomePage() {
       books
         .filter(
           (book) =>
-            book.user_data?.progress_sec > 0 &&
+            book.user_data?.progress_sec &&
+            book.user_data.progress_sec > 0 &&
+            book.total_duration_sec &&
             book.user_data.progress_sec < book.total_duration_sec
         )
         .sort((a, b) => {

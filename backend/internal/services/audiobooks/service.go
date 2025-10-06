@@ -415,42 +415,28 @@ func (s *Service) ListUserLibrary(ctx context.Context, userID, libraryID string,
 
 // GetLibraryItem returns a single audiobook from the user's library.
 func (s *Service) GetLibraryItem(ctx context.Context, audiobookID, userID string) (*models.Audiobook, error) {
-	// First check if user has this book in their library
-	hasAccess, err := s.repo.UserHasAudiobookInLibrary(ctx, userID, audiobookID)
-	if err != nil {
-		return nil, err
-	}
-	if !hasAccess {
-		return nil, fmt.Errorf("audiobook not found in user's library")
-	}
-
+	// All users have access to all audiobooks - just fetch and return with user data (if any)
 	return s.repo.GetAudiobook(ctx, audiobookID, userID)
 }
 
-// UpdateProgress records listening progress for a user (requires book to be in their library).
+// UpdateProgress records listening progress for a user.
 func (s *Service) UpdateProgress(ctx context.Context, userID, audiobookID string, progressSec float64) (*models.UserAudiobookData, error) {
-	// Check if user has this book in their library
-	hasAccess, err := s.repo.UserHasAudiobookInLibrary(ctx, userID, audiobookID)
+	// Verify audiobook exists (user_audiobook_data will be created if it doesn't exist)
+	_, err := s.repo.GetAudiobook(ctx, audiobookID, userID)
 	if err != nil {
 		return nil, err
-	}
-	if !hasAccess {
-		return nil, fmt.Errorf("audiobook not found in user's library")
 	}
 
 	now := time.Now().UTC()
 	return s.repo.UpdateUserProgress(ctx, userID, audiobookID, progressSec, &now)
 }
 
-// SetFavorite sets or clears the favorite flag for a user (requires book to be in their library).
+// SetFavorite sets or clears the favorite flag for a user.
 func (s *Service) SetFavorite(ctx context.Context, userID, audiobookID string, isFavorite bool) (*models.UserAudiobookData, error) {
-	// Check if user has this book in their library
-	hasAccess, err := s.repo.UserHasAudiobookInLibrary(ctx, userID, audiobookID)
+	// Verify audiobook exists (user_audiobook_data will be created if it doesn't exist)
+	_, err := s.repo.GetAudiobook(ctx, audiobookID, userID)
 	if err != nil {
 		return nil, err
-	}
-	if !hasAccess {
-		return nil, fmt.Errorf("audiobook not found in user's library")
 	}
 
 	return s.repo.SetUserFavorite(ctx, userID, audiobookID, isFavorite)
